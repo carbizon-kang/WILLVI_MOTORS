@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
-from utils.intake_types import get_type_names, get_intake_types, is_insurance_type, add_intake_type, deactivate_intake_type
+from utils.intake_types import get_type_names, get_intake_types, is_insurance_type, add_intake_type, deactivate_intake_type, activate_intake_type, get_inactive_types
 
 INSURANCE_COS = ['삼성화재', 'KB손보', '현대해상', 'DB손보', '기타']
 
@@ -192,3 +192,17 @@ def render():
                 deactivate_intake_type(sb, del_sel)
                 st.success(f"'{del_sel}' 항목이 비활성화되었습니다.")
                 st.rerun()
+
+        # 항목 재활성화
+        st.divider()
+        st.subheader("항목 재활성화")
+        st.caption("비활성화된 항목을 다시 선택 목록에 추가합니다.")
+        inactive_names = get_inactive_types(sb)
+        if inactive_names:
+            act_sel = st.selectbox("재활성화할 항목", inactive_names, key="act_type_sel")
+            if st.button("✅ 재활성화", type="primary"):
+                activate_intake_type(sb, act_sel)
+                st.success(f"'{act_sel}' 항목이 재활성화되었습니다.")
+                st.rerun()
+        else:
+            st.info("비활성화된 항목이 없습니다.")

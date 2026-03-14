@@ -60,3 +60,21 @@ def add_intake_type(sb, name: str, is_insurance: bool) -> bool:
 def deactivate_intake_type(sb, name: str):
     """입고분류 비활성화 (삭제 대신)"""
     sb.table("intake_types").update({"is_active": False}).eq("name", name).execute()
+
+
+def activate_intake_type(sb, name: str):
+    """비활성화된 입고분류 재활성화"""
+    sb.table("intake_types").update({"is_active": True}).eq("name", name).execute()
+
+
+def get_inactive_types(sb) -> list[str]:
+    """비활성화된 입고분류 목록 반환"""
+    try:
+        rows = sb.table("intake_types") \
+            .select("name") \
+            .eq("is_active", False) \
+            .order("name") \
+            .execute().data or []
+        return [r["name"] for r in rows]
+    except Exception:
+        return []
