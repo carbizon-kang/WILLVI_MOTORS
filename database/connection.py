@@ -20,7 +20,7 @@ def _get_secret(key: str) -> str:
 @st.cache_resource
 def get_supabase() -> Client:
     url = _get_secret("SUPABASE_URL")
-    key = _get_secret("SUPABASE_ANON_KEY")
+    key = _get_secret("SUPABASE_ANON_KEY") or _get_secret("SUPABASE_KEY")
     if not url or not key:
         st.error("⚠️ SUPABASE_URL과 SUPABASE_ANON_KEY를 설정하세요.")
         st.stop()
