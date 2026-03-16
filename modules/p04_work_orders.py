@@ -159,7 +159,7 @@ def render():
 
     # 세부 작업 내역 입력 (등록 시 함께)
     st.markdown("**세부 작업 내역**")
-    d_type  = st.selectbox("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"], key="d_type_new")
+    d_type  = st.multiselect("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"], key="d_type_new")
     d_name  = st.text_input("항목명", key="d_name_new")
     d_qty   = st.number_input("수량", min_value=0.1, step=0.1, value=1.0, key="d_qty_new")
     d_price_key = "d_price_new"
@@ -265,7 +265,7 @@ def render():
                 
                 sb.table("order_details").insert({
                     "work_order_id": new_id,
-                    "item_type": st.session_state.get("d_type_new", "기타"),
+                    "item_type": ",".join(st.session_state.get("d_type_new", [])),
                     "item_name": st.session_state.get("d_name_new", "").strip(),
                     "quantity": st.session_state.get("d_qty_new", 1.0),
                     "unit_price": safe_int(st.session_state.get("d_price_new", "0")),
@@ -288,7 +288,7 @@ def render():
             } for d in details]), use_container_width=True, hide_index=True)
 
         dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
-        d_type  = dc1.selectbox("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"])
+        d_type  = dc1.multiselect("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"])
         d_name  = dc2.text_input("항목명")
         d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
         d_price_key = f"d_price_{edit_id}"
@@ -303,7 +303,7 @@ def render():
                 return int(cleaned) if cleaned else 0
             
             sb.table("order_details").insert({
-                "work_order_id": edit_id, "item_type": d_type,
+                "work_order_id": edit_id, "item_type": ",".join(d_type),
                 "item_name": d_name.strip(), "quantity": d_qty,
                 "unit_price": safe_int(st.session_state.get(d_price_key, "0")),
                 "memo": d_memo.strip() or None,
