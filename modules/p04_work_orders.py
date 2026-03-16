@@ -284,7 +284,7 @@ def render():
             st.dataframe(pd.DataFrame([{
                 "유형": d.get("item_type",""), "항목명": d.get("item_name",""),
                 "수량": d.get("quantity",1), "단가": fmt_money(d.get("unit_price",0)),
-                "금액": fmt_money(d.get("amount",0)), "메모": d.get("memo","") or "",
+                "메모": d.get("memo","") or "",
             } for d in details]), use_container_width=True, hide_index=True)
 
         dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
