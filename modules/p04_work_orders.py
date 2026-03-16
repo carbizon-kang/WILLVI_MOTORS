@@ -37,7 +37,7 @@ def generate_work_order_pdf(work_order, details, vehicle):
     """작업지시서 PDF 생성 (reportlab 사용)"""
     # 한글 폰트 등록
     try:
-        pdfmetrics.registerFont(TTFont('KoreanFont', 'C:/Windows/Fonts/malgun.ttf'))
+        pdfmetrics.registerFont(TTFont('KoreanFont', 'C:/Windows/Fonts/gulim.ttc', subfontIndex=0))
         font_name = 'KoreanFont'
     except:
         # 폰트 로드 실패 시 기본 폰트 사용
