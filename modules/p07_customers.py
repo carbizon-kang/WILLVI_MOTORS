@@ -6,6 +6,19 @@ from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import fmt_money
 
 
+def format_phone_number():
+    """핸드폰 번호 포맷팅 함수"""
+    phone = st.session_state.get("phone_input", "")
+    digits = ''.join(c for c in phone if c.isdigit())
+    if len(digits) <= 3:
+        formatted = digits
+    elif len(digits) <= 7:
+        formatted = f"{digits[:3]}-{digits[3:]}"
+    else:
+        formatted = f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    st.session_state.phone_input = formatted
+
+
 def render():
     apply_global_style()
     page_header("고객 관리", "고객 정보 및 수리 이력 조회")
@@ -78,7 +91,7 @@ def render():
         with st.form("customer_form", clear_on_submit=True):
             cc1, cc2 = st.columns(2)
             name  = cc1.text_input("고객명 *")
-            phone = cc2.text_input("연락처", placeholder="010-0000-0000")
+            phone = cc2.text_input("연락처", value=st.session_state.get("phone_input", ""), key="phone_input", on_change=format_phone_number, placeholder="010-0000-0000")
             memo  = st.text_input("메모")
             sub   = st.form_submit_button("✅ 등록", type="primary")
 
@@ -88,8 +101,11 @@ def render():
             else:
                 sb.table("customers").insert({
                     "name": name.strip(),
-                    "phone": phone.strip() or None,
+                    "phone": st.session_state.get("phone_input", "").strip() or None,
                     "memo": memo.strip() or None,
                 }).execute()
                 st.success(f"✅ [{name}] 고객이 등록되었습니다.")
+                # 폼 제출 후 session_state 초기화
+                if "phone_input" in st.session_state:
+                    del st.session_state.phone_input
                 st.rerun()

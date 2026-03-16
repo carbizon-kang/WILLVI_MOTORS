@@ -139,3 +139,16 @@ def render():
             st.session_state["detail_vehicle_id"] = vehicle_id
             st.session_state["_goto_page"] = "작업지시서"
             st.rerun()
+
+        # 삭제 기능 추가
+        st.warning("⚠️ 차량 삭제는 신중하게 진행하세요. 삭제된 데이터는 복구할 수 없습니다.")
+        delete_confirm = st.text_input("삭제 확인: 'DELETE'를 입력하세요", key=f"delete_{vehicle_id}")
+        if st.button("🗑️ 차량 삭제", type="secondary"):
+            if delete_confirm.strip().upper() == "DELETE":
+                # 관련 데이터 삭제 (work_orders 등)
+                sb.table("work_orders").delete().eq("vehicle_id", vehicle_id).execute()
+                sb.table("vehicles").delete().eq("id", vehicle_id).execute()
+                st.success(f"✅ {plate} 차량이 삭제되었습니다.")
+                st.rerun()
+            else:
+                st.error("삭제 확인 문구를 정확히 입력하세요.")
