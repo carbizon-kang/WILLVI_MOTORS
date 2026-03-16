@@ -19,10 +19,10 @@ def format_money_input(key):
     """금액 입력 필드 포맷팅 함수 (천 단위 콤마 추가)"""
     value = st.session_state.get(key, "")
     digits = ''.join(c for c in value if c.isdigit())
-    if digits:
-        formatted = f"{int(digits):,}"
-    else:
+    if not digits:
         formatted = ""
+    else:
+        formatted = f"{int(digits):,}"
     st.session_state[key] = formatted
 
 
@@ -195,16 +195,20 @@ def render():
                                   on_change=lambda: format_money_input(insurance_key))
 
     from utils.calculations import calc_engine_oil, calc_total, calc_vat
-    oil_amt   = calc_engine_oil(engine_oil_liter, int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "").replace("원", "")))
-    vat_amt   = calc_vat(int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")))
-    total_amt = calc_total(int(st.session_state.get(parts_key, "0").replace(",", "").replace("원", "")), oil_amt, 
-                           int(st.session_state.get(towing_key, "0").replace(",", "").replace("원", "")), 
-                           int(st.session_state.get(insurance_key, "0").replace(",", "").replace("원", "")), 
-                           int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")))
+    def safe_int(value):
+        cleaned = value.replace(",", "").replace("원", "")
+        return int(cleaned) if cleaned else 0
+    
+    oil_amt   = calc_engine_oil(engine_oil_liter, safe_int(st.session_state.get(engine_oil_unit_key, "0")))
+    vat_amt   = calc_vat(safe_int(st.session_state.get(tech_fee_key, "0")))
+    total_amt = calc_total(safe_int(st.session_state.get(parts_key, "0")), oil_amt, 
+                           safe_int(st.session_state.get(towing_key, "0")), 
+                           safe_int(st.session_state.get(insurance_key, "0")), 
+                           safe_int(st.session_state.get(tech_fee_key, "0")))
     preview   = (f"계산 미리보기 | 엔진오일: {fmt_money(oil_amt)} | "
                  f"부가세: {fmt_money(vat_amt)} | 총계: {fmt_money(total_amt)}")
-    if int(st.session_state.get(paint_key, "0").replace(",", "").replace("원", "")) > 0:
-        preview += f" | 도장금액: {fmt_money(int(st.session_state.get(paint_key, '0').replace(',', '').replace('원', '')))}"
+    if safe_int(st.session_state.get(paint_key, "0")) > 0:
+        preview += f" | 도장금액: {fmt_money(safe_int(st.session_state.get(paint_key, '0')))}"
     st.info(preview)
 
     completed_at = None
@@ -217,17 +221,21 @@ def render():
     if submitted:
         if v_status in ("입고", "진단"):
             sb.table("vehicles").update({"status": "수리중"}).eq("id", vehicle_id).execute()
+        def safe_int(value):
+            cleaned = value.replace(",", "").replace("원", "")
+            return int(cleaned) if cleaned else 0
+        
         data = {
             "vehicle_id": vehicle_id, "repair_seq": repair_seq,
             "description": description.strip() or None,
             "worker": worker.strip() or None,
-            "parts_amount": int(st.session_state.get(parts_key, "0").replace(",", "").replace("원", "")),
+            "parts_amount": safe_int(st.session_state.get(parts_key, "0")),
             "engine_oil_liter": engine_oil_liter,
-            "engine_oil_unit": int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "").replace("원", "")),
-            "towing_fee": int(st.session_state.get(towing_key, "0").replace(",", "").replace("원", "")),
-            "insurance_fee": int(st.session_state.get(insurance_key, "0").replace(",", "").replace("원", "")),
-            "tech_fee": int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")),
-            "paint_amount": int(st.session_state.get(paint_key, "0").replace(",", "").replace("원", "")),
+            "engine_oil_unit": safe_int(st.session_state.get(engine_oil_unit_key, "0")),
+            "towing_fee": safe_int(st.session_state.get(towing_key, "0")),
+            "insurance_fee": safe_int(st.session_state.get(insurance_key, "0")),
+            "tech_fee": safe_int(st.session_state.get(tech_fee_key, "0")),
+            "paint_amount": safe_int(st.session_state.get(paint_key, "0")),
             "status": wo_status,
             "completed_at": str(completed_at) if completed_at else None,
         }
@@ -264,10 +272,14 @@ def render():
             d_sub   = st.form_submit_button("세부 내역 추가", use_container_width=True)
 
         if d_sub and d_name.strip():
+            def safe_int(value):
+                cleaned = value.replace(",", "").replace("원", "")
+                return int(cleaned) if cleaned else 0
+            
             sb.table("order_details").insert({
                 "work_order_id": edit_id, "item_type": d_type,
                 "item_name": d_name.strip(), "quantity": d_qty,
-                "unit_price": int(st.session_state.get(d_price_key, "0").replace(",", "")),
+                "unit_price": safe_int(st.session_state.get(d_price_key, "0")),
                 "memo": d_memo.strip() or None,
             }).execute()
             st.rerun()
