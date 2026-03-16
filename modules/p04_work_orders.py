@@ -260,16 +260,15 @@ def render():
                 "금액": fmt_money(d.get("amount",0)), "메모": d.get("memo","") or "",
             } for d in details]), use_container_width=True, hide_index=True)
 
-        with st.form("detail_form", clear_on_submit=True):
-            dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
-            d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
-            d_name  = dc2.text_input("항목명")
-            d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
-            d_price_key = f"d_price_{edit_id}"
-            d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
-                                     on_change=lambda: format_money_input(d_price_key))
-            d_memo  = st.text_input("메모")
-            d_sub   = st.form_submit_button("세부 내역 추가", use_container_width=True)
+        dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
+        d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
+        d_name  = dc2.text_input("항목명")
+        d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
+        d_price_key = f"d_price_{edit_id}"
+        d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
+                                 on_change=lambda: format_money_input(d_price_key))
+        d_memo  = st.text_input("메모")
+        d_sub   = st.button("세부 내역 추가", use_container_width=True)
 
         if d_sub and d_name.strip():
             def safe_int(value):
