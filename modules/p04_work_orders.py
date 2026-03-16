@@ -147,70 +147,72 @@ def render():
 
     edit_order = next((o for o in orders if o['id'] == edit_id), {}) if edit_id else {}
 
-    with st.form("work_order_form"):
-        fc1, fc2, fc3 = st.columns(3)
-        repair_seq = fc1.selectbox("수리 구분", REPAIR_SEQS,
-                                   index=REPAIR_SEQS.index(edit_order.get("repair_seq","수리1"))
-                                   if edit_order.get("repair_seq") in REPAIR_SEQS else 0)
-        worker    = fc2.text_input("담당 기술자", value=edit_order.get("worker",""))
-        wo_status = fc3.selectbox("작업 상태", ["진행중","완료"],
-                                  index=0 if edit_order.get("status","진행중") == "진행중" else 1)
+    fc1, fc2, fc3 = st.columns(3)
+    repair_seq = fc1.selectbox("수리 구분", REPAIR_SEQS,
+                               index=REPAIR_SEQS.index(edit_order.get("repair_seq","수리1"))
+                               if edit_order.get("repair_seq") in REPAIR_SEQS else 0)
+    worker    = fc2.text_input("담당 기술자", value=edit_order.get("worker",""))
+    wo_status = fc3.selectbox("작업 상태", ["진행중","완료"],
+                              index=0 if edit_order.get("status","진행중") == "진행중" else 1)
 
-        description = st.text_area("수리 내용", value=edit_order.get("description",""), height=80)
+    description = st.text_area("수리 내용", value=edit_order.get("description",""), height=80)
 
-        st.markdown("**비용 항목**")
-        col1, col2, col3 = st.columns(3)
-        parts_key = f"parts_amount_{edit_id or 'new'}"
-        parts_amount = col1.text_input("부품금액 (엔진오일 제외, 원)", 
-                                       value=fmt_money(edit_order.get("parts_amount",0)), 
-                                       key=parts_key, 
-                                       on_change=lambda: format_money_input(parts_key))
-        tech_fee_key = f"tech_fee_{edit_id or 'new'}"
-        tech_fee = col2.text_input("기술료 (공임, 원)", 
-                                   value=fmt_money(edit_order.get("tech_fee",0)), 
-                                   key=tech_fee_key, 
-                                   on_change=lambda: format_money_input(tech_fee_key))
-        paint_key = f"paint_amount_{edit_id or 'new'}"
-        paint_amount = col3.text_input("도장금액 (원)", 
-                                       value=fmt_money(edit_order.get("paint_amount",0)), 
-                                       key=paint_key, 
-                                       on_change=lambda: format_money_input(paint_key))
+    st.markdown("**비용 항목**")
+    col1, col2, col3 = st.columns(3)
+    parts_key = f"parts_amount_{edit_id or 'new'}"
+    parts_amount = col1.text_input("부품금액 (엔진오일 제외, 원)", 
+                                   value=fmt_money(edit_order.get("parts_amount",0)), 
+                                   key=parts_key, 
+                                   on_change=lambda: format_money_input(parts_key))
+    tech_fee_key = f"tech_fee_{edit_id or 'new'}"
+    tech_fee = col2.text_input("기술료 (공임, 원)", 
+                               value=fmt_money(edit_order.get("tech_fee",0)), 
+                               key=tech_fee_key, 
+                               on_change=lambda: format_money_input(tech_fee_key))
+    paint_key = f"paint_amount_{edit_id or 'new'}"
+    paint_amount = col3.text_input("도장금액 (원)", 
+                                   value=fmt_money(edit_order.get("paint_amount",0)), 
+                                   key=paint_key, 
+                                   on_change=lambda: format_money_input(paint_key))
 
-        col4, col5, col6 = st.columns(3)
-        engine_oil_liter = col4.number_input("엔진오일 (리터)", min_value=0.0, step=0.5,
-                                              value=float(edit_order.get("engine_oil_liter",0) or 0))
-        engine_oil_unit_key = f"engine_oil_unit_{edit_id or 'new'}"
-        engine_oil_unit = col5.text_input("엔진오일 단가 (원/리터)", 
-                                          value=fmt_money(edit_order.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE)), 
-                                          key=engine_oil_unit_key, 
-                                          on_change=lambda: format_money_input(engine_oil_unit_key))
-        towing_key = f"towing_fee_{edit_id or 'new'}"
-        towing_fee = col6.text_input("견인비 (원)", 
-                                     value=fmt_money(edit_order.get("towing_fee",0)), 
-                                     key=towing_key, 
-                                     on_change=lambda: format_money_input(towing_key))
-        insurance_key = f"insurance_fee_{edit_id or 'new'}"
-        insurance_fee = st.text_input("보험료 (원)", 
-                                      value=fmt_money(edit_order.get("insurance_fee",0)), 
-                                      key=insurance_key, 
-                                      on_change=lambda: format_money_input(insurance_key))
+    col4, col5, col6 = st.columns(3)
+    engine_oil_liter = col4.number_input("엔진오일 (리터)", min_value=0.0, step=0.5,
+                                          value=float(edit_order.get("engine_oil_liter",0) or 0))
+    engine_oil_unit_key = f"engine_oil_unit_{edit_id or 'new'}"
+    engine_oil_unit = col5.text_input("엔진오일 단가 (원/리터)", 
+                                      value=fmt_money(edit_order.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE)), 
+                                      key=engine_oil_unit_key, 
+                                      on_change=lambda: format_money_input(engine_oil_unit_key))
+    towing_key = f"towing_fee_{edit_id or 'new'}"
+    towing_fee = col6.text_input("견인비 (원)", 
+                                 value=fmt_money(edit_order.get("towing_fee",0)), 
+                                 key=towing_key, 
+                                 on_change=lambda: format_money_input(towing_key))
+    insurance_key = f"insurance_fee_{edit_id or 'new'}"
+    insurance_fee = st.text_input("보험료 (원)", 
+                                  value=fmt_money(edit_order.get("insurance_fee",0)), 
+                                  key=insurance_key, 
+                                  on_change=lambda: format_money_input(insurance_key))
 
-        from utils.calculations import calc_engine_oil, calc_total, calc_vat
-        oil_amt   = calc_engine_oil(engine_oil_liter, engine_oil_unit)
-        vat_amt   = calc_vat(tech_fee)
-        total_amt = calc_total(parts_amount, oil_amt, towing_fee, insurance_fee, tech_fee)
-        preview   = (f"계산 미리보기 | 엔진오일: {fmt_money(oil_amt)} | "
-                     f"부가세: {fmt_money(vat_amt)} | 총계: {fmt_money(total_amt)}")
-        if paint_amount > 0:
-            preview += f" | 도장금액: {fmt_money(paint_amount)}"
-        st.info(preview)
+    from utils.calculations import calc_engine_oil, calc_total, calc_vat
+    oil_amt   = calc_engine_oil(engine_oil_liter, int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "")))
+    vat_amt   = calc_vat(int(st.session_state.get(tech_fee_key, "0").replace(",", "")))
+    total_amt = calc_total(int(st.session_state.get(parts_key, "0").replace(",", "")), oil_amt, 
+                           int(st.session_state.get(towing_key, "0").replace(",", "")), 
+                           int(st.session_state.get(insurance_key, "0").replace(",", "")), 
+                           int(st.session_state.get(tech_fee_key, "0").replace(",", "")))
+    preview   = (f"계산 미리보기 | 엔진오일: {fmt_money(oil_amt)} | "
+                 f"부가세: {fmt_money(vat_amt)} | 총계: {fmt_money(total_amt)}")
+    if int(st.session_state.get(paint_key, "0").replace(",", "")) > 0:
+        preview += f" | 도장금액: {fmt_money(int(st.session_state.get(paint_key, '0').replace(',', '')))}"
+    st.info(preview)
 
-        completed_at = None
-        if wo_status == "완료":
-            completed_at = st.date_input("완료일", value=date.today())
+    completed_at = None
+    if wo_status == "완료":
+        completed_at = st.date_input("완료일", value=date.today())
 
-        submitted = st.form_submit_button(
-            "저장" if edit_id else "등록", type="primary", use_container_width=True)
+    submitted = st.button(
+        "저장" if edit_id else "등록", type="primary", use_container_width=True)
 
     if submitted:
         if v_status in ("입고", "진단"):
