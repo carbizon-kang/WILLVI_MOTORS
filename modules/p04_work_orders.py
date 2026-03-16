@@ -9,6 +9,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from io import BytesIO
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
@@ -33,9 +35,23 @@ def format_money_input(key):
 
 def generate_work_order_pdf(work_order, details, vehicle):
     """작업지시서 PDF 생성 (reportlab 사용)"""
+    # 한글 폰트 등록
+    try:
+        pdfmetrics.registerFont(TTFont('KoreanFont', 'C:/Windows/Fonts/malgun.ttf'))
+        font_name = 'KoreanFont'
+    except:
+        # 폰트 로드 실패 시 기본 폰트 사용
+        font_name = 'Helvetica'
+    
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
+    
+    # 스타일에 한글 폰트 적용
+    styles['Title'].fontName = font_name
+    styles['Heading2'].fontName = font_name
+    styles['Normal'].fontName = font_name
+    
     story = []
     
     # 제목
