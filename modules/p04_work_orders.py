@@ -5,7 +5,11 @@ from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
-from fpdf import FPDF
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from io import BytesIO
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
 
@@ -28,38 +32,53 @@ def format_money_input(key):
 
 
 def generate_work_order_pdf(work_order, details, vehicle):
-    """작업지시서 PDF 생성"""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    """작업지시서 PDF 생성 (reportlab 사용)"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
     
-    pdf.cell(200, 10, txt="작업지시서", ln=True, align='C')
-    pdf.ln(10)
+    # 제목
+    title = Paragraph("작업지시서", styles['Title'])
+    story.append(title)
+    story.append(Spacer(1, 12))
     
-    pdf.cell(200, 10, txt=f"차량번호: {vehicle.get('plate_number', '')}", ln=True)
-    pdf.cell(200, 10, txt=f"모델: {vehicle.get('model', '')}", ln=True)
-    pdf.cell(200, 10, txt=f"수리 구분: {work_order.get('repair_seq', '')}", ln=True)
-    pdf.cell(200, 10, txt=f"담당자: {work_order.get('worker', '')}", ln=True)
-    pdf.cell(200, 10, txt=f"수리 내용: {work_order.get('description', '')}", ln=True)
-    pdf.ln(10)
+    # 차량 정보
+    info = [
+        f"차량번호: {vehicle.get('plate_number', '')}",
+        f"모델: {vehicle.get('model', '')}",
+        f"수리 구분: {work_order.get('repair_seq', '')}",
+        f"담당자: {work_order.get('worker', '')}",
+        f"수리 내용: {work_order.get('description', '')}",
+    ]
+    for line in info:
+        story.append(Paragraph(line, styles['Normal']))
+    story.append(Spacer(1, 12))
     
-    pdf.cell(200, 10, txt="세부 내역:", ln=True)
+    # 세부 내역
+    story.append(Paragraph("세부 내역:", styles['Heading2']))
     for d in details:
-        pdf.cell(200, 10, txt=f"- 유형: {d.get('item_type', '')}", ln=True)
-        pdf.cell(200, 10, txt=f"  항목명: {d.get('item_name', '')}", ln=True)
-        pdf.cell(200, 10, txt=f"  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}", ln=True)
+        item = f"- 유형: {d.get('item_type', '')}<br/>  항목명: {d.get('item_name', '')}<br/>  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
         if d.get('memo'):
-            pdf.cell(200, 10, txt=f"  메모: {d.get('memo', '')}", ln=True)
-        pdf.ln(5)
+            item += f"<br/>  메모: {d.get('memo', '')}"
+        story.append(Paragraph(item, styles['Normal']))
+        story.append(Spacer(1, 6))
     
-    pdf.ln(10)
-    pdf.cell(200, 10, txt="비용 요약:", ln=True)
-    pdf.cell(200, 10, txt=f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}", ln=True)
-    pdf.cell(200, 10, txt=f"기술료: {fmt_money(work_order.get('tech_fee', 0))}", ln=True)
-    pdf.cell(200, 10, txt=f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}", ln=True)
-    # 기타 비용 추가
+    story.append(Spacer(1, 12))
     
-    return pdf.output(dest='S').encode('latin1')
+    # 비용 요약
+    story.append(Paragraph("비용 요약:", styles['Heading2']))
+    costs = [
+        f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}",
+        f"기술료: {fmt_money(work_order.get('tech_fee', 0))}",
+        f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}",
+    ]
+    for cost in costs:
+        story.append(Paragraph(cost, styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 def render():
