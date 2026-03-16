@@ -5,6 +5,7 @@ from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
+from fpdf import FPDF
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
 
@@ -24,6 +25,41 @@ def format_money_input(key):
     else:
         formatted = f"{int(digits):,}"
     st.session_state[key] = formatted
+
+
+def generate_work_order_pdf(work_order, details, vehicle):
+    """작업지시서 PDF 생성"""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    pdf.cell(200, 10, txt="작업지시서", ln=True, align='C')
+    pdf.ln(10)
+    
+    pdf.cell(200, 10, txt=f"차량번호: {vehicle.get('plate_number', '')}", ln=True)
+    pdf.cell(200, 10, txt=f"모델: {vehicle.get('model', '')}", ln=True)
+    pdf.cell(200, 10, txt=f"수리 구분: {work_order.get('repair_seq', '')}", ln=True)
+    pdf.cell(200, 10, txt=f"담당자: {work_order.get('worker', '')}", ln=True)
+    pdf.cell(200, 10, txt=f"수리 내용: {work_order.get('description', '')}", ln=True)
+    pdf.ln(10)
+    
+    pdf.cell(200, 10, txt="세부 내역:", ln=True)
+    for d in details:
+        pdf.cell(200, 10, txt=f"- 유형: {d.get('item_type', '')}", ln=True)
+        pdf.cell(200, 10, txt=f"  항목명: {d.get('item_name', '')}", ln=True)
+        pdf.cell(200, 10, txt=f"  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}", ln=True)
+        if d.get('memo'):
+            pdf.cell(200, 10, txt=f"  메모: {d.get('memo', '')}", ln=True)
+        pdf.ln(5)
+    
+    pdf.ln(10)
+    pdf.cell(200, 10, txt="비용 요약:", ln=True)
+    pdf.cell(200, 10, txt=f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}", ln=True)
+    pdf.cell(200, 10, txt=f"기술료: {fmt_money(work_order.get('tech_fee', 0))}", ln=True)
+    pdf.cell(200, 10, txt=f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}", ln=True)
+    # 기타 비용 추가
+    
+    return pdf.output(dest='S').encode('latin1')
 
 
 def render():
@@ -272,6 +308,16 @@ def render():
                     "memo": st.session_state.get("d_memo_new", "").strip() or None,
                 }).execute()
                 st.success("세부 내역도 함께 등록되었습니다.")
+            
+            # PDF 다운로드
+            details = sb.table("order_details").select("*").eq("work_order_id", new_id).execute().data or []
+            pdf_data = generate_work_order_pdf(data, details, vehicle)
+            st.download_button(
+                "📄 작업지시서 PDF 다운로드", 
+                data=pdf_data, 
+                file_name=f"work_order_{vehicle.get('plate_number', '')}_{new_id}.pdf", 
+                mime="application/pdf"
+            )
         st.rerun()
 
     # ── 세부 내역
