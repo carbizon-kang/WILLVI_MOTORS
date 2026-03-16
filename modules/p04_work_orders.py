@@ -248,37 +248,41 @@ def render():
         st.rerun()
 
     # ── 세부 내역
-    if orders and edit_id:
+    if orders or edit_id is None:
         st.divider()
         st.subheader("세부 작업 내역")
-        details = sb.table("order_details").select("*") \
-            .eq("work_order_id", edit_id).execute().data or []
-        if details:
-            st.dataframe(pd.DataFrame([{
-                "유형": d.get("item_type",""), "항목명": d.get("item_name",""),
-                "수량": d.get("quantity",1), "단가": fmt_money(d.get("unit_price",0)),
-                "금액": fmt_money(d.get("amount",0)), "메모": d.get("memo","") or "",
-            } for d in details]), use_container_width=True, hide_index=True)
+        if edit_id:
+            details = sb.table("order_details").select("*") \
+                .eq("work_order_id", edit_id).execute().data or []
+            if details:
+                st.dataframe(pd.DataFrame([{
+                    "유형": d.get("item_type",""), "항목명": d.get("item_name",""),
+                    "수량": d.get("quantity",1), "단가": fmt_money(d.get("unit_price",0)),
+                    "금액": fmt_money(d.get("amount",0)), "메모": d.get("memo","") or "",
+                } for d in details]), use_container_width=True, hide_index=True)
 
-        dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
-        d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
-        d_name  = dc2.text_input("항목명")
-        d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
-        d_price_key = f"d_price_{edit_id}"
-        d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
-                                 on_change=lambda: format_money_input(d_price_key))
-        d_memo  = st.text_input("메모")
-        d_sub   = st.button("세부 내역 추가", use_container_width=True)
+        if edit_id:
+            dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
+            d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
+            d_name  = dc2.text_input("항목명")
+            d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
+            d_price_key = f"d_price_{edit_id}"
+            d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
+                                     on_change=lambda: format_money_input(d_price_key))
+            d_memo  = st.text_input("메모")
+            d_sub   = st.button("세부 내역 추가", use_container_width=True)
 
-        if d_sub and d_name.strip():
-            def safe_int(value):
-                cleaned = value.replace(",", "").replace("원", "")
-                return int(cleaned) if cleaned else 0
-            
-            sb.table("order_details").insert({
-                "work_order_id": edit_id, "item_type": d_type,
-                "item_name": d_name.strip(), "quantity": d_qty,
-                "unit_price": safe_int(st.session_state.get(d_price_key, "0")),
-                "memo": d_memo.strip() or None,
-            }).execute()
-            st.rerun()
+            if d_sub and d_name.strip():
+                def safe_int(value):
+                    cleaned = value.replace(",", "").replace("원", "")
+                    return int(cleaned) if cleaned else 0
+                
+                sb.table("order_details").insert({
+                    "work_order_id": edit_id, "item_type": d_type,
+                    "item_name": d_name.strip(), "quantity": d_qty,
+                    "unit_price": safe_int(st.session_state.get(d_price_key, "0")),
+                    "memo": d_memo.strip() or None,
+                }).execute()
+                st.rerun()
+        else:
+            st.info("작업지시서를 먼저 등록하세요. 등록 후 세부 내역을 추가할 수 있습니다.")
