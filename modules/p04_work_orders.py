@@ -15,6 +15,17 @@ STATUS_COLOR = {
 }
 
 
+def format_money_input(key):
+    """금액 입력 필드 포맷팅 함수 (천 단위 콤마 추가)"""
+    value = st.session_state.get(key, "")
+    digits = ''.join(c for c in value if c.isdigit())
+    if digits:
+        formatted = f"{int(digits):,}"
+    else:
+        formatted = ""
+    st.session_state[key] = formatted
+
+
 def render():
     apply_global_style()
     page_header("작업지시서", "수리 작업 내역 및 비용 관리")
@@ -149,22 +160,40 @@ def render():
 
         st.markdown("**비용 항목**")
         col1, col2, col3 = st.columns(3)
-        parts_amount = col1.number_input("부품금액 (엔진오일 제외, 원)", min_value=0, step=1000,
-                                         value=int(edit_order.get("parts_amount",0) or 0))
-        tech_fee     = col2.number_input("기술료 (공임, 원)", min_value=0, step=10000,
-                                         value=int(edit_order.get("tech_fee",0) or 0))
-        paint_amount = col3.number_input("도장금액 (원)", min_value=0, step=10000,
-                                         value=int(edit_order.get("paint_amount",0) or 0))
+        parts_key = f"parts_amount_{edit_id or 'new'}"
+        parts_amount = col1.text_input("부품금액 (엔진오일 제외, 원)", 
+                                       value=fmt_money(edit_order.get("parts_amount",0)), 
+                                       key=parts_key, 
+                                       on_change=lambda: format_money_input(parts_key))
+        tech_fee_key = f"tech_fee_{edit_id or 'new'}"
+        tech_fee = col2.text_input("기술료 (공임, 원)", 
+                                   value=fmt_money(edit_order.get("tech_fee",0)), 
+                                   key=tech_fee_key, 
+                                   on_change=lambda: format_money_input(tech_fee_key))
+        paint_key = f"paint_amount_{edit_id or 'new'}"
+        paint_amount = col3.text_input("도장금액 (원)", 
+                                       value=fmt_money(edit_order.get("paint_amount",0)), 
+                                       key=paint_key, 
+                                       on_change=lambda: format_money_input(paint_key))
 
         col4, col5, col6 = st.columns(3)
         engine_oil_liter = col4.number_input("엔진오일 (리터)", min_value=0.0, step=0.5,
                                               value=float(edit_order.get("engine_oil_liter",0) or 0))
-        engine_oil_unit  = col5.number_input("엔진오일 단가 (원/리터)", min_value=0, step=100,
-                                              value=int(edit_order.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE) or ENGINE_OIL_UNIT_PRICE))
-        towing_fee       = col6.number_input("견인비 (원)", min_value=0, step=10000,
-                                              value=int(edit_order.get("towing_fee",0) or 0))
-        insurance_fee    = st.number_input("보험료 (원)", min_value=0, step=10000,
-                                           value=int(edit_order.get("insurance_fee",0) or 0))
+        engine_oil_unit_key = f"engine_oil_unit_{edit_id or 'new'}"
+        engine_oil_unit = col5.text_input("엔진오일 단가 (원/리터)", 
+                                          value=fmt_money(edit_order.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE)), 
+                                          key=engine_oil_unit_key, 
+                                          on_change=lambda: format_money_input(engine_oil_unit_key))
+        towing_key = f"towing_fee_{edit_id or 'new'}"
+        towing_fee = col6.text_input("견인비 (원)", 
+                                     value=fmt_money(edit_order.get("towing_fee",0)), 
+                                     key=towing_key, 
+                                     on_change=lambda: format_money_input(towing_key))
+        insurance_key = f"insurance_fee_{edit_id or 'new'}"
+        insurance_fee = st.text_input("보험료 (원)", 
+                                      value=fmt_money(edit_order.get("insurance_fee",0)), 
+                                      key=insurance_key, 
+                                      on_change=lambda: format_money_input(insurance_key))
 
         from utils.calculations import calc_engine_oil, calc_total, calc_vat
         oil_amt   = calc_engine_oil(engine_oil_liter, engine_oil_unit)
@@ -190,10 +219,14 @@ def render():
             "vehicle_id": vehicle_id, "repair_seq": repair_seq,
             "description": description.strip() or None,
             "worker": worker.strip() or None,
-            "parts_amount": parts_amount, "engine_oil_liter": engine_oil_liter,
-            "engine_oil_unit": engine_oil_unit, "towing_fee": towing_fee,
-            "insurance_fee": insurance_fee, "tech_fee": tech_fee,
-            "paint_amount": paint_amount, "status": wo_status,
+            "parts_amount": int(st.session_state.get(parts_key, "0").replace(",", "")),
+            "engine_oil_liter": engine_oil_liter,
+            "engine_oil_unit": int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "")),
+            "towing_fee": int(st.session_state.get(towing_key, "0").replace(",", "")),
+            "insurance_fee": int(st.session_state.get(insurance_key, "0").replace(",", "")),
+            "tech_fee": int(st.session_state.get(tech_fee_key, "0").replace(",", "")),
+            "paint_amount": int(st.session_state.get(paint_key, "0").replace(",", "")),
+            "status": wo_status,
             "completed_at": str(completed_at) if completed_at else None,
         }
         if edit_id:
@@ -222,7 +255,9 @@ def render():
             d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
             d_name  = dc2.text_input("항목명")
             d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
-            d_price = dc4.number_input("단가(원)", min_value=0, step=1000)
+            d_price_key = f"d_price_{edit_id}"
+            d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
+                                     on_change=lambda: format_money_input(d_price_key))
             d_memo  = st.text_input("메모")
             d_sub   = st.form_submit_button("세부 내역 추가", use_container_width=True)
 
@@ -230,6 +265,7 @@ def render():
             sb.table("order_details").insert({
                 "work_order_id": edit_id, "item_type": d_type,
                 "item_name": d_name.strip(), "quantity": d_qty,
-                "unit_price": d_price, "memo": d_memo.strip() or None,
+                "unit_price": int(st.session_state.get(d_price_key, "0").replace(",", "")),
+                "memo": d_memo.strip() or None,
             }).execute()
             st.rerun()
