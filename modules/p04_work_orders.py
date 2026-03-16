@@ -5,11 +5,7 @@ from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from weasyprint import HTML, CSS
 from io import BytesIO
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
@@ -33,65 +29,69 @@ def format_money_input(key):
 
 
 def generate_work_order_pdf(work_order, details, vehicle):
-    """작업지시서 PDF 생성 (reportlab 사용)"""
-    # 한글 폰트 등록
-    try:
-        pdfmetrics.registerFont(TTFont('KoreanFont', 'C:/Windows/Fonts/malgun.ttf'))
-        font_name = 'KoreanFont'
-    except:
-        # 폰트 로드 실패 시 기본 폰트 사용
-        font_name = 'Helvetica'
+    """작업지시서 PDF 생성 (weasyprint 사용 - HTML 기반)"""
+    # HTML 템플릿
+    html_template = """
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { text-align: center; }
+            h2 { margin-top: 20px; }
+            p { margin: 5px 0; }
+            .section { margin-bottom: 15px; }
+        </style>
+    </head>
+    <body>
+        <h1>작업지시서</h1>
+        <div class="section">
+            <h2>차량 정보</h2>
+            <p>차량번호: {plate_number}</p>
+            <p>모델: {model}</p>
+            <p>수리 구분: {repair_seq}</p>
+            <p>담당자: {worker}</p>
+            <p>수리 내용: {description}</p>
+        </div>
+        <div class="section">
+            <h2>세부 내역</h2>
+            {details_html}
+        </div>
+        <div class="section">
+            <h2>비용 요약</h2>
+            <p>부품금액: {parts_amount}</p>
+            <p>기술료: {tech_fee}</p>
+            <p>도장금액: {paint_amount}</p>
+        </div>
+    </body>
+    </html>
+    """
     
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
-    
-    # 스타일에 한글 폰트 적용
-    styles['Title'].fontName = font_name
-    styles['Heading2'].fontName = font_name
-    styles['Normal'].fontName = font_name
-    
-    story = []
-    
-    # 제목
-    title = Paragraph("작업지시서", styles['Title'])
-    story.append(title)
-    story.append(Spacer(1, 12))
-    
-    # 차량 정보
-    info = [
-        f"차량번호: {vehicle.get('plate_number', '')}",
-        f"모델: {vehicle.get('model', '')}",
-        f"수리 구분: {work_order.get('repair_seq', '')}",
-        f"담당자: {work_order.get('worker', '')}",
-        f"수리 내용: {work_order.get('description', '')}",
-    ]
-    for line in info:
-        story.append(Paragraph(line, styles['Normal'], encoding='utf-8'))
-    story.append(Spacer(1, 12))
-    
-    # 세부 내역
-    story.append(Paragraph("세부 내역:", styles['Heading2'], encoding='utf-8'))
+    # 세부 내역 HTML 생성
+    details_html = ""
     for d in details:
-        item = f"- 유형: {d.get('item_type', '')}<br/>  항목명: {d.get('item_name', '')}<br/>  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
+        item = f"- 유형: {d.get('item_type', '')}, 항목명: {d.get('item_name', '')}, 수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
         if d.get('memo'):
-            item += f"<br/>  메모: {d.get('memo', '')}"
-        story.append(Paragraph(item, styles['Normal'], encoding='utf-8'))
-        story.append(Spacer(1, 6))
+            item += f", 메모: {d.get('memo', '')}"
+        details_html += f"<p>{item}</p>"
     
-    story.append(Spacer(1, 12))
+    # HTML 채우기
+    html_content = html_template.format(
+        plate_number=vehicle.get('plate_number', ''),
+        model=vehicle.get('model', ''),
+        repair_seq=work_order.get('repair_seq', ''),
+        worker=work_order.get('worker', ''),
+        description=work_order.get('description', ''),
+        details_html=details_html,
+        parts_amount=fmt_money(work_order.get('parts_amount', 0)),
+        tech_fee=fmt_money(work_order.get('tech_fee', 0)),
+        paint_amount=fmt_money(work_order.get('paint_amount', 0))
+    )
     
-    # 비용 요약
-    story.append(Paragraph("비용 요약:", styles['Heading2'], encoding='utf-8'))
-    costs = [
-        f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}",
-        f"기술료: {fmt_money(work_order.get('tech_fee', 0))}",
-        f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}",
-    ]
-    for cost in costs:
-        story.append(Paragraph(cost, styles['Normal'], encoding='utf-8'))
-    
-    doc.build(story)
+    # PDF 생성
+    html_doc = HTML(string=html_content)
+    buffer = BytesIO()
+    html_doc.write_pdf(buffer)
     buffer.seek(0)
     return buffer.getvalue()
 
