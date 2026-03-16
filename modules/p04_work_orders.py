@@ -124,20 +124,31 @@ def render():
 
     if orders:
         st.subheader("작업지시서 현황")
-        rows = []
+
+        # 테이블 헤더
+        header_cols = st.columns([1, 2, 1, 1, 1, 1, 1, 1, 1])
+        headers = ["구분", "수리내용", "담당자", "부품금액", "기술료", "총계", "완료일", "상태", "PDF"]
+        for col, h in zip(header_cols, headers):
+            col.markdown(f"**{h}**")
+
+        # 각 작업지시서 별 PDF 다운로드 버튼 추가
         for o in orders:
             s = summarize_work_order(o)
-            rows.append({
-                "구분": s.get("repair_seq",""),
-                "수리내용": (s.get("description") or "")[:40],
-                "담당자": s.get("worker","") or "-",
-                "부품금액": fmt_money(s.get("parts_amount",0)),
-                "기술료": fmt_money(s.get("tech_fee",0)),
-                "총계": fmt_money(s.get("total_amount",0)),
-                "완료일": s.get("completed_at","") or "-",
-                "상태": "완료" if s.get("status") == "완료" else "진행중",
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            row_cols = st.columns([1, 2, 1, 1, 1, 1, 1, 1, 1])
+            row_cols[0].write(s.get("repair_seq",""))
+            row_cols[1].write((s.get("description") or "")[:40])
+            row_cols[2].write(s.get("worker","") or "-")
+            row_cols[3].write(fmt_money(s.get("parts_amount",0)))
+            row_cols[4].write(fmt_money(s.get("tech_fee",0)))
+            row_cols[5].write(fmt_money(s.get("total_amount",0)))
+            row_cols[6].write(s.get("completed_at","") or "-")
+            row_cols[7].write("완료" if s.get("status") == "완료" else "진행중")
+
+            details = sb.table("order_details").select("*").eq("work_order_id", o["id"]).execute().data or []
+            pdf_bytes = generate_work_order_pdf(o, details, vehicle)
+            filename = f"work_order_{o['id']}.pdf"
+            row_cols[8].download_button("PDF", data=pdf_bytes, file_name=filename, mime="application/pdf")
+
         grand_total = sum(summarize_work_order(o).get("total_amount",0) or 0 for o in orders)
         st.metric("전체 작업 합계", fmt_money(grand_total))
 
