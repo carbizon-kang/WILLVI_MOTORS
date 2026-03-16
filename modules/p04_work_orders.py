@@ -195,16 +195,16 @@ def render():
                                   on_change=lambda: format_money_input(insurance_key))
 
     from utils.calculations import calc_engine_oil, calc_total, calc_vat
-    oil_amt   = calc_engine_oil(engine_oil_liter, int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "")))
-    vat_amt   = calc_vat(int(st.session_state.get(tech_fee_key, "0").replace(",", "")))
-    total_amt = calc_total(int(st.session_state.get(parts_key, "0").replace(",", "")), oil_amt, 
-                           int(st.session_state.get(towing_key, "0").replace(",", "")), 
-                           int(st.session_state.get(insurance_key, "0").replace(",", "")), 
-                           int(st.session_state.get(tech_fee_key, "0").replace(",", "")))
+    oil_amt   = calc_engine_oil(engine_oil_liter, int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "").replace("원", "")))
+    vat_amt   = calc_vat(int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")))
+    total_amt = calc_total(int(st.session_state.get(parts_key, "0").replace(",", "").replace("원", "")), oil_amt, 
+                           int(st.session_state.get(towing_key, "0").replace(",", "").replace("원", "")), 
+                           int(st.session_state.get(insurance_key, "0").replace(",", "").replace("원", "")), 
+                           int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")))
     preview   = (f"계산 미리보기 | 엔진오일: {fmt_money(oil_amt)} | "
                  f"부가세: {fmt_money(vat_amt)} | 총계: {fmt_money(total_amt)}")
-    if int(st.session_state.get(paint_key, "0").replace(",", "")) > 0:
-        preview += f" | 도장금액: {fmt_money(int(st.session_state.get(paint_key, '0').replace(',', '')))}"
+    if int(st.session_state.get(paint_key, "0").replace(",", "").replace("원", "")) > 0:
+        preview += f" | 도장금액: {fmt_money(int(st.session_state.get(paint_key, '0').replace(',', '').replace('원', '')))}"
     st.info(preview)
 
     completed_at = None
@@ -221,13 +221,13 @@ def render():
             "vehicle_id": vehicle_id, "repair_seq": repair_seq,
             "description": description.strip() or None,
             "worker": worker.strip() or None,
-            "parts_amount": int(st.session_state.get(parts_key, "0").replace(",", "")),
+            "parts_amount": int(st.session_state.get(parts_key, "0").replace(",", "").replace("원", "")),
             "engine_oil_liter": engine_oil_liter,
-            "engine_oil_unit": int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "")),
-            "towing_fee": int(st.session_state.get(towing_key, "0").replace(",", "")),
-            "insurance_fee": int(st.session_state.get(insurance_key, "0").replace(",", "")),
-            "tech_fee": int(st.session_state.get(tech_fee_key, "0").replace(",", "")),
-            "paint_amount": int(st.session_state.get(paint_key, "0").replace(",", "")),
+            "engine_oil_unit": int(st.session_state.get(engine_oil_unit_key, "0").replace(",", "").replace("원", "")),
+            "towing_fee": int(st.session_state.get(towing_key, "0").replace(",", "").replace("원", "")),
+            "insurance_fee": int(st.session_state.get(insurance_key, "0").replace(",", "").replace("원", "")),
+            "tech_fee": int(st.session_state.get(tech_fee_key, "0").replace(",", "").replace("원", "")),
+            "paint_amount": int(st.session_state.get(paint_key, "0").replace(",", "").replace("원", "")),
             "status": wo_status,
             "completed_at": str(completed_at) if completed_at else None,
         }
