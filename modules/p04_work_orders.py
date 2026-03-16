@@ -5,7 +5,11 @@ from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
-from fpdf2 import FPDF
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from io import BytesIO
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
@@ -29,56 +33,65 @@ def format_money_input(key):
 
 
 def generate_work_order_pdf(work_order, details, vehicle):
-    """작업지시서 PDF 생성 (fpdf2 사용)"""
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # 한글 폰트 추가
+    """작업지시서 PDF 생성 (reportlab 사용)"""
+    # 한글 폰트 등록
     try:
-        pdf.add_font('KoreanFont', '', 'C:/Windows/Fonts/malgun.ttf')
+        pdfmetrics.registerFont(TTFont('KoreanFont', 'C:/Windows/Fonts/malgun.ttf'))
         font_name = 'KoreanFont'
     except:
-        font_name = 'Arial'  # fallback
+        # 폰트 로드 실패 시 기본 폰트 사용
+        font_name = 'Helvetica'
     
-    pdf.set_font(font_name, size=16)
-    pdf.cell(200, 10, txt="작업지시서", ln=True, align='C')
-    pdf.ln(10)
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
     
-    pdf.set_font(font_name, size=12)
+    # 스타일에 한글 폰트 적용
+    styles['Title'].fontName = font_name
+    styles['Heading2'].fontName = font_name
+    styles['Normal'].fontName = font_name
+    
+    story = []
+    
+    # 제목
+    title = Paragraph("작업지시서", styles['Title'])
+    story.append(title)
+    story.append(Spacer(1, 12))
     
     # 차량 정보
-    info_lines = [
+    info = [
         f"차량번호: {vehicle.get('plate_number', '')}",
         f"모델: {vehicle.get('model', '')}",
         f"수리 구분: {work_order.get('repair_seq', '')}",
         f"담당자: {work_order.get('worker', '')}",
         f"수리 내용: {work_order.get('description', '')}",
     ]
-    for line in info_lines:
-        pdf.cell(200, 8, txt=line, ln=True)
-    pdf.ln(5)
+    for line in info:
+        story.append(Paragraph(line, styles['Normal'], encoding='utf-8'))
+    story.append(Spacer(1, 12))
     
     # 세부 내역
-    pdf.cell(200, 8, txt="세부 내역:", ln=True)
+    story.append(Paragraph("세부 내역:", styles['Heading2'], encoding='utf-8'))
     for d in details:
-        item = f"- 유형: {d.get('item_type', '')}, 항목명: {d.get('item_name', '')}, 수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
+        item = f"- 유형: {d.get('item_type', '')}<br/>  항목명: {d.get('item_name', '')}<br/>  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
         if d.get('memo'):
-            item += f", 메모: {d.get('memo', '')}"
-        pdf.cell(200, 6, txt=item, ln=True)
-    pdf.ln(5)
+            item += f"<br/>  메모: {d.get('memo', '')}"
+        story.append(Paragraph(item, styles['Normal'], encoding='utf-8'))
+        story.append(Spacer(1, 6))
+    
+    story.append(Spacer(1, 12))
     
     # 비용 요약
-    pdf.cell(200, 8, txt="비용 요약:", ln=True)
+    story.append(Paragraph("비용 요약:", styles['Heading2'], encoding='utf-8'))
     costs = [
         f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}",
         f"기술료: {fmt_money(work_order.get('tech_fee', 0))}",
         f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}",
     ]
     for cost in costs:
-        pdf.cell(200, 6, txt=cost, ln=True)
+        story.append(Paragraph(cost, styles['Normal'], encoding='utf-8'))
     
-    buffer = BytesIO()
-    buffer.write(pdf.output(dest='S').encode('latin1'))
+    doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
 
