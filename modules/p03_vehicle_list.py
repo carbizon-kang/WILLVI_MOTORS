@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
+from utils.calculations import fmt_phone
 from utils.excel_export import export_work_list_excel
 
 STATUS_LIST   = ['전체', '입고', '진단', '수리중', '부품대기', '도장', '상품화', '출고대기', '출고완료']
@@ -26,7 +27,7 @@ def render():
     f_type   = fc2.selectbox("입고 분류", INTAKE_TYPES)
     f_search = fc3.text_input("차량번호/모델 검색")
     # 출고완료 선택 시 체크박스 강제 해제
-    active_default = f_status != "출고완료"
+    active_default = f_status not in ("전체", "출고완료")
     f_active = fc4.checkbox("입고중만 표시", value=active_default)
 
     # ── 데이터 로드
@@ -86,7 +87,7 @@ def render():
             "입고일": v.get("intake_date", ""),
             "출고예정": v.get("expected_out", "") or "-",
             "고객명": v.get("customer_name", ""),
-            "연락처": v.get("customer_phone", ""),
+            "연락처": fmt_phone(v.get("customer_phone", "")),
             "AOS": "✔" if v.get("aos_claimed") else "",
             "비고": v.get("memo", "") or "",
             "_id": v.get("id", ""),

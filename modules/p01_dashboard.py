@@ -25,12 +25,13 @@ def render():
     # ── 데이터 로드
     vehicles = sb.table("vehicles").select("*").execute().data or []
     today = date.today().isoformat()
+    ym = date.today().strftime("%Y-%m")
     today_in    = [v for v in vehicles if v.get("intake_date") == today]
     today_out   = [v for v in vehicles if v.get("expected_out") == today and v.get("status") != "출고완료"]
     active      = [v for v in vehicles if v.get("status") != "출고완료"]
     waiting_out = [v for v in vehicles if v.get("status") == "출고대기"]
-
-    ym = date.today().strftime("%Y-%m")
+    completed   = [v for v in vehicles if v.get("status") == "출고완료"]
+    month_completed = [v for v in completed if (v.get("actual_out") or "").startswith(ym)]
     orders_this_month = sb.table("work_orders") \
         .select("total_amount, paint_amount, tech_fee, parts_amount") \
         .gte("created_at", f"{ym}-01").execute().data or []
@@ -45,13 +46,14 @@ def render():
     unpaid_cnt = len(claims)
     unpaid_amt = sum((r.get("claim_amount") or 0) - (r.get("paid_amount") or 0) for r in claims)
 
-    # ── 핵심 지표 (6개 카드)
-    cols = st.columns(6)
+    # ── 핵심 지표 (7개 카드)
+    cols = st.columns(7)
     cards = [
         ("입고 차량 (전체)", f"{len(active)}대", "", ""),
         ("오늘 입고", f"{len(today_in)}대", "", "green" if today_in else "gray"),
         ("오늘 출고 예정", f"{len(today_out)}대", "", "orange" if today_out else "gray"),
         ("출고 대기", f"{len(waiting_out)}대", "출고 처리 필요" if waiting_out else "없음", "orange" if waiting_out else "gray"),
+        ("이번달 출고완료", f"{len(month_completed)}대", f"누적 {len(completed)}대", "blue"),
         ("이번달 매출", fmt_money(total_revenue), f"{len(orders_this_month)}건", "green"),
         ("보험 미수금", fmt_money(unpaid_amt), f"{unpaid_cnt}건 미처리" if unpaid_cnt else "전건 처리", "red" if unpaid_cnt else "gray"),
     ]
@@ -98,7 +100,7 @@ def render():
     with col_right:
         st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        tab1, tab2 = st.tabs([f"출고 예정 ({len(today_out)}건)", f"출고 대기 ({len(waiting_out)}건)"])
+        tab1, tab2, tab3 = st.tabs([f"출고 예정 ({len(today_out)}건)", f"출고 대기 ({len(waiting_out)}건)", f"출고완료 ({len(month_completed)}건)"])
 
         with tab1:
             section_title("오늘 출고 예정 차량")
@@ -132,6 +134,24 @@ def render():
                     )
             else:
                 st.markdown("<p style='color:#A0AEC0;font-size:13px;padding:12px 0'>출고 대기 차량이 없습니다.</p>",
+                            unsafe_allow_html=True)
+
+        with tab3:
+            section_title(f"이번달 출고완료 ({date.today().month}월)")
+            if month_completed:
+                for v in sorted(month_completed, key=lambda x: x.get("actual_out",""), reverse=True):
+                    actual = v.get("actual_out","") or "-"
+                    st.markdown(
+                        f"<div style='padding:8px 0;border-bottom:1px solid #EDF2F7'>"
+                        f"<b style='color:#1A202C'>{v.get('plate_number','')}</b>"
+                        f"<span style='color:#718096;margin-left:8px;font-size:13px'>{v.get('model','')}</span><br>"
+                        f"{status_badge(v.get('status',''))} "
+                        f"<span style='font-size:12px;color:#A0AEC0'>{v.get('intake_type','')} | 출고일: {actual}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.markdown("<p style='color:#A0AEC0;font-size:13px;padding:12px 0'>이번달 출고완료 차량이 없습니다.</p>",
                             unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -197,11 +217,11 @@ def render():
     # ── Kanban
     st.markdown('<div class="card">', unsafe_allow_html=True)
     section_title("작업 현황판 (Kanban)")
-    kanban_statuses = [s for s in STATUS_ORDER if s != "출고완료"]
+    kanban_statuses = STATUS_ORDER
     kanban_cols = st.columns(len(kanban_statuses))
 
     for col, status in zip(kanban_cols, kanban_statuses):
-        cards_v = [v for v in active if v.get("status") == status]
+        cards_v = [v for v in vehicles if v.get("status") == status]
         color = STATUS_COLOR.get(status, "#ccc")
         with col:
             st.markdown(

@@ -59,3 +59,13 @@ def fmt_money(val) -> str:
     if val is None:
         return "-"
     return f"{int(val):,}원"
+
+
+def fmt_phone(phone: str) -> str:
+    """전화번호 → '010-xxxx-xxxx' 형식"""
+    digits = ''.join(filter(str.isdigit, phone or ''))
+    if len(digits) == 11:
+        return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    elif len(digits) == 10:
+        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    return phone or ""
