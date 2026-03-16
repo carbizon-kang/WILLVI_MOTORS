@@ -263,7 +263,7 @@ def render():
 
         if edit_id:
             dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
-            d_type  = dc1.selectbox("유형", ["부품","소모품","공임","기타"])
+            d_type  = dc1.selectbox("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"])
             d_name  = dc2.text_input("항목명")
             d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
             d_price_key = f"d_price_{edit_id}"
