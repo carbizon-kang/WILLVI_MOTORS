@@ -1,7 +1,7 @@
 """작업지시서 - 수리 내역 및 비용 입력"""
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
@@ -19,7 +19,7 @@ _FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "utils", "fonts", "Na
 _FONT_PATH = os.path.normpath(_FONT_PATH)
 pdfmetrics.registerFont(TTFont("NanumGothic", _FONT_PATH))
 
-REPAIR_SEQS = ['수리1', '수리2', '추가']
+REPAIR_SEQS_DEFAULT = ['수리1', '수리2', '추가']
 
 STATUS_COLOR = {
     '입고': '#4A90D9', '진단': '#F5A623', '수리중': '#7ED321',
@@ -39,7 +39,7 @@ def format_money_input(key):
     st.session_state[key] = formatted
 
 
-def generate_work_order_pdf(work_order, details, vehicle):
+def generate_work_order_pdf(work_order, details, vehicle, customer=None):
     """작업지시서 PDF 생성 (NanumGothic 한글 폰트)"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
@@ -48,7 +48,9 @@ def generate_work_order_pdf(work_order, details, vehicle):
 
     # 한글 스타일 정의
     style_title = ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=18,
-                                  spaceAfter=12, alignment=1)
+                                  spaceAfter=6, alignment=1)
+    style_sub   = ParagraphStyle("KSub", fontName="NanumGothic", fontSize=9,
+                                  spaceAfter=10, alignment=1, textColor=colors.HexColor("#888888"))
     style_h2 = ParagraphStyle("KH2", fontName="NanumGothic", fontSize=12,
                                spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#2c3e50"))
     style_body = ParagraphStyle("KBody", fontName="NanumGothic", fontSize=10,
@@ -56,16 +58,26 @@ def generate_work_order_pdf(work_order, details, vehicle):
 
     story = []
 
-    # 제목
+    # 제목 + 출력일시
     story.append(Paragraph("작업지시서", style_title))
-    story.append(Spacer(1, 6))
+    printed_at = datetime.now().strftime("%Y년 %m월 %d일 %H:%M 출력")
+    story.append(Paragraph(printed_at, style_sub))
+    story.append(Spacer(1, 4))
 
-    # 차량 정보 테이블
+    # 차량 및 고객 정보 테이블
+    cust_name  = (customer or {}).get('name', '') or ''
+    cust_phone = (customer or {}).get('phone', '') or ''
+    mileage    = vehicle.get('mileage', '') or ''
+    mileage_str = f"{int(mileage):,} km" if mileage else '-'
+
     info_data = [
         ["차량번호", vehicle.get('plate_number', '') or ''],
         ["차량모델", vehicle.get('model', '') or ''],
+        ["주행거리", mileage_str],
+        ["고객명",   cust_name],
+        ["연락처",   cust_phone],
         ["수리구분", work_order.get('repair_seq', '') or ''],
-        ["담당자", work_order.get('worker', '') or ''],
+        ["담당자",   work_order.get('worker', '') or ''],
         ["수리내용", work_order.get('description', '') or ''],
     ]
     info_table = Table(
@@ -168,7 +180,7 @@ def render():
     # ── 차량 선택
     search_plate = st.text_input("차량번호 검색", placeholder="12가3456")
     all_vehicles = sb.table("vehicles") \
-        .select("id, plate_number, model, status, intake_type, intake_date") \
+        .select("id, plate_number, model, status, intake_type, intake_date, mileage, customer_id") \
         .order("intake_date", desc=True) \
         .execute().data or []
 
@@ -194,6 +206,13 @@ def render():
         f"border-radius:12px;font-weight:bold'>● {v_status}</span>",
         unsafe_allow_html=True
     )
+
+    # ── 고객 정보 조회 (PDF용)
+    customer = {}
+    if vehicle.get("customer_id"):
+        cust_rows = sb.table("customers").select("name, phone") \
+            .eq("id", vehicle["customer_id"]).execute().data or []
+        customer = cust_rows[0] if cust_rows else {}
 
     # ── 기존 작업지시서 목록
     st.divider()
@@ -224,7 +243,7 @@ def render():
             row_cols[7].write("완료" if s.get("status") == "완료" else "진행중")
 
             details = sb.table("order_details").select("*").eq("work_order_id", o["id"]).execute().data or []
-            pdf_bytes = generate_work_order_pdf(o, details, vehicle)
+            pdf_bytes = generate_work_order_pdf(o, details, vehicle, customer)
             filename = f"work_order_{o['id']}.pdf"
             row_cols[8].download_button("PDF", data=pdf_bytes, file_name=filename, mime="application/pdf")
 
@@ -292,10 +311,27 @@ def render():
 
     edit_order = next((o for o in orders if o['id'] == edit_id), {}) if edit_id else {}
 
+    # ── 수리구분 목록 (기존 지시서에서 사용된 구분 + 기본값 합산)
+    used_seqs = [o.get("repair_seq","") for o in orders if o.get("repair_seq")]
+    all_seqs  = list(dict.fromkeys(REPAIR_SEQS_DEFAULT + used_seqs))  # 순서 유지 + 중복 제거
+
     fc1, fc2, fc3 = st.columns(3)
-    repair_seq = fc1.selectbox("수리 구분", REPAIR_SEQS,
-                               index=REPAIR_SEQS.index(edit_order.get("repair_seq","수리1"))
-                               if edit_order.get("repair_seq") in REPAIR_SEQS else 0)
+    repair_seq_mode = fc1.radio("수리구분 입력방식", ["선택", "직접입력"],
+                                horizontal=True, label_visibility="collapsed",
+                                key=f"seq_mode_{edit_id}")
+    if repair_seq_mode == "직접입력":
+        repair_seq = fc1.text_input("수리구분 직접입력",
+                                    value=edit_order.get("repair_seq", ""),
+                                    placeholder="예: 수리3, 재작업 등",
+                                    key=f"seq_input_{edit_id}")
+    else:
+        cur_seq = edit_order.get("repair_seq", "수리1")
+        if cur_seq not in all_seqs:
+            all_seqs.append(cur_seq)
+        repair_seq = fc1.selectbox("수리 구분", all_seqs,
+                                   index=all_seqs.index(cur_seq),
+                                   key=f"seq_sel_{edit_id}")
+
     worker    = fc2.text_input("담당 기술자", value=edit_order.get("worker",""))
     wo_status = fc3.selectbox("작업 상태", ["진행중","완료"],
                               index=0 if edit_order.get("status","진행중") == "진행중" else 1)
@@ -420,7 +456,7 @@ def render():
             
             # PDF 다운로드
             details = sb.table("order_details").select("*").eq("work_order_id", new_id).execute().data or []
-            pdf_data = generate_work_order_pdf(data, details, vehicle)
+            pdf_data = generate_work_order_pdf(data, details, vehicle, customer)
             st.download_button(
                 "📄 작업지시서 PDF 다운로드", 
                 data=pdf_data, 
