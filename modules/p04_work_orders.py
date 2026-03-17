@@ -401,6 +401,36 @@ def render():
                 st.success(f"출고완료 처리되었습니다. (출고일: {date.today()})")
                 st.rerun()
 
+    from utils.calculations import calc_engine_oil, calc_total, calc_vat
+
+    def safe_int(v):
+        return int(''.join(c for c in str(v) if c.isdigit()) or 0)
+
+    def cost_fields(prefix, defaults={}):
+        """비용 항목 입력 필드 묶음 — prefix로 key 충돌 방지"""
+        c1, c2, c3 = st.columns(3)
+        pk  = f"parts_{prefix}";   c1.text_input("부품금액 (원)", key=pk,  value=fmt_money(defaults.get("parts_amount",0)),  on_change=lambda: format_money_input(pk))
+        tfk = f"tech_{prefix}";    c2.text_input("기술료 (원)",   key=tfk, value=fmt_money(defaults.get("tech_fee",0)),      on_change=lambda: format_money_input(tfk))
+        pak = f"paint_{prefix}";   c3.text_input("도장금액 (원)", key=pak, value=fmt_money(defaults.get("paint_amount",0)),  on_change=lambda: format_money_input(pak))
+        c4, c5, c6 = st.columns(3)
+        eol = c4.number_input("엔진오일 (리터)", min_value=0.0, step=0.5, key=f"eol_{prefix}",
+                              value=float(defaults.get("engine_oil_liter", 0) or 0))
+        euk = f"eou_{prefix}";    c5.text_input("엔진오일 단가 (원/L)", key=euk,
+                                                 value=fmt_money(defaults.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE)),
+                                                 on_change=lambda: format_money_input(euk))
+        twk = f"tow_{prefix}";    c6.text_input("견인비 (원)",   key=twk, value=fmt_money(defaults.get("towing_fee",0)),    on_change=lambda: format_money_input(twk))
+        ink = f"ins_{prefix}";    st.text_input("보험료 (원)",   key=ink, value=fmt_money(defaults.get("insurance_fee",0)), on_change=lambda: format_money_input(ink))
+
+        oil = calc_engine_oil(st.session_state.get(f"eol_{prefix}", 0),
+                              safe_int(st.session_state.get(euk, "0")))
+        vat = calc_vat(safe_int(st.session_state.get(tfk, "0")))
+        tot = calc_total(safe_int(st.session_state.get(pk, "0")), oil,
+                         safe_int(st.session_state.get(twk, "0")),
+                         safe_int(st.session_state.get(ink, "0")),
+                         safe_int(st.session_state.get(tfk, "0")))
+        st.info(f"엔진오일: {fmt_money(oil)}  |  부가세: {fmt_money(vat)}  |  **총계: {fmt_money(tot)}**")
+        return pk, tfk, pak, f"eol_{prefix}", euk, twk, ink
+
     # ── 작업지시서 등록 / 수정
     st.divider()
     st.subheader("작업지시서 등록 / 수정")
@@ -415,194 +445,133 @@ def render():
         sel_edit = st.selectbox("편집할 지시서", list(edit_opts.keys()))
         edit_id  = edit_opts[sel_edit]
 
-    edit_order = next((o for o in orders if o['id'] == edit_id), {}) if edit_id else {}
-
-    # ── 수리구분 목록 (기존 지시서에서 사용된 구분 + 기본값 합산)
     used_seqs = [o.get("repair_seq","") for o in orders if o.get("repair_seq")]
-    all_seqs  = list(dict.fromkeys(REPAIR_SEQS_DEFAULT + used_seqs))  # 순서 유지 + 중복 제거
+    all_seqs  = list(dict.fromkeys(REPAIR_SEQS_DEFAULT + used_seqs))
 
-    fc1, fc2, fc3 = st.columns(3)
-    repair_seq_mode = fc1.radio("수리구분 입력방식", ["선택", "직접입력"],
-                                horizontal=True, label_visibility="collapsed",
-                                key=f"seq_mode_{edit_id}")
-    if repair_seq_mode == "직접입력":
-        repair_seq = fc1.text_input("수리구분 직접입력",
-                                    value=edit_order.get("repair_seq", ""),
-                                    placeholder="예: 수리3, 재작업 등",
-                                    key=f"seq_input_{edit_id}")
-    else:
-        cur_seq = edit_order.get("repair_seq", "수리1")
-        if cur_seq not in all_seqs:
-            all_seqs.append(cur_seq)
-        repair_seq = fc1.selectbox("수리 구분", all_seqs,
-                                   index=all_seqs.index(cur_seq),
-                                   key=f"seq_sel_{edit_id}")
+    # ════════════════════════════════════
+    # ① 수정 모드 (기존 지시서 1건 수정)
+    # ════════════════════════════════════
+    if edit_id:
+        edit_order = next((o for o in orders if o['id'] == edit_id), {})
 
-    worker    = fc2.text_input("담당 기술자", value=edit_order.get("worker",""))
-    wo_status = fc3.selectbox("작업 상태", ["진행중","완료"],
-                              index=0 if edit_order.get("status","진행중") == "진행중" else 1)
-
-    description = st.text_area("수리 내용", value=edit_order.get("description",""), height=80)
-
-    # 세부 작업 내역 입력 (등록 시 함께)
-    st.markdown("**세부 작업 내역**")
-    d_type  = st.multiselect("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"], key="d_type_new")
-    d_name  = st.text_input("항목명", key="d_name_new")
-    d_qty   = st.number_input("수량", min_value=0.1, step=0.1, value=1.0, key="d_qty_new")
-    d_price_key = "d_price_new"
-    d_price = st.text_input("단가(원)", value="", key=d_price_key, 
-                            on_change=lambda: format_money_input(d_price_key))
-    d_memo  = st.text_input("메모", key="d_memo_new")
-
-    st.markdown("**비용 항목**")
-    col1, col2, col3 = st.columns(3)
-    parts_key = f"parts_amount_{edit_id or 'new'}"
-    parts_amount = col1.text_input("부품금액 (엔진오일 제외, 원)", 
-                                   value=fmt_money(edit_order.get("parts_amount",0)), 
-                                   key=parts_key, 
-                                   on_change=lambda: format_money_input(parts_key))
-    tech_fee_key = f"tech_fee_{edit_id or 'new'}"
-    tech_fee = col2.text_input("기술료 (공임, 원)", 
-                               value=fmt_money(edit_order.get("tech_fee",0)), 
-                               key=tech_fee_key, 
-                               on_change=lambda: format_money_input(tech_fee_key))
-    paint_key = f"paint_amount_{edit_id or 'new'}"
-    paint_amount = col3.text_input("도장금액 (원)", 
-                                   value=fmt_money(edit_order.get("paint_amount",0)), 
-                                   key=paint_key, 
-                                   on_change=lambda: format_money_input(paint_key))
-
-    col4, col5, col6 = st.columns(3)
-    engine_oil_liter = col4.number_input("엔진오일 (리터)", min_value=0.0, step=0.5,
-                                          value=float(edit_order.get("engine_oil_liter",0) or 0))
-    engine_oil_unit_key = f"engine_oil_unit_{edit_id or 'new'}"
-    engine_oil_unit = col5.text_input("엔진오일 단가 (원/리터)", 
-                                      value=fmt_money(edit_order.get("engine_oil_unit", ENGINE_OIL_UNIT_PRICE)), 
-                                      key=engine_oil_unit_key, 
-                                      on_change=lambda: format_money_input(engine_oil_unit_key))
-    towing_key = f"towing_fee_{edit_id or 'new'}"
-    towing_fee = col6.text_input("견인비 (원)", 
-                                 value=fmt_money(edit_order.get("towing_fee",0)), 
-                                 key=towing_key, 
-                                 on_change=lambda: format_money_input(towing_key))
-    insurance_key = f"insurance_fee_{edit_id or 'new'}"
-    insurance_fee = st.text_input("보험료 (원)", 
-                                  value=fmt_money(edit_order.get("insurance_fee",0)), 
-                                  key=insurance_key, 
-                                  on_change=lambda: format_money_input(insurance_key))
-
-    from utils.calculations import calc_engine_oil, calc_total, calc_vat
-    def safe_int(value):
-        cleaned = value.replace(",", "").replace("원", "")
-        return int(cleaned) if cleaned else 0
-    
-    oil_amt   = calc_engine_oil(engine_oil_liter, safe_int(st.session_state.get(engine_oil_unit_key, "0")))
-    vat_amt   = calc_vat(safe_int(st.session_state.get(tech_fee_key, "0")))
-    total_amt = calc_total(safe_int(st.session_state.get(parts_key, "0")), oil_amt, 
-                           safe_int(st.session_state.get(towing_key, "0")), 
-                           safe_int(st.session_state.get(insurance_key, "0")), 
-                           safe_int(st.session_state.get(tech_fee_key, "0")))
-    preview   = (f"계산 미리보기 | 엔진오일: {fmt_money(oil_amt)} | "
-                 f"부가세: {fmt_money(vat_amt)} | 총계: {fmt_money(total_amt)}")
-    if safe_int(st.session_state.get(paint_key, "0")) > 0:
-        preview += f" | 도장금액: {fmt_money(safe_int(st.session_state.get(paint_key, '0')))}"
-    st.info(preview)
-
-    completed_at = None
-    if wo_status == "완료":
-        completed_at = st.date_input("완료일", value=date.today())
-
-    submitted = st.button(
-        "저장" if edit_id else "등록", type="primary", use_container_width=True)
-
-    if submitted:
-        if v_status in ("입고", "진단"):
-            sb.table("vehicles").update({"status": "수리중"}).eq("id", vehicle_id).execute()
-        def safe_int(value):
-            cleaned = value.replace(",", "").replace("원", "")
-            return int(cleaned) if cleaned else 0
-        
-        data = {
-            "vehicle_id": vehicle_id, "repair_seq": repair_seq,
-            "description": description.strip() or None,
-            "worker": worker.strip() or None,
-            "parts_amount": safe_int(st.session_state.get(parts_key, "0")),
-            "engine_oil_liter": engine_oil_liter,
-            "engine_oil_unit": safe_int(st.session_state.get(engine_oil_unit_key, "0")),
-            "towing_fee": safe_int(st.session_state.get(towing_key, "0")),
-            "insurance_fee": safe_int(st.session_state.get(insurance_key, "0")),
-            "tech_fee": safe_int(st.session_state.get(tech_fee_key, "0")),
-            "paint_amount": safe_int(st.session_state.get(paint_key, "0")),
-            "status": wo_status,
-            "completed_at": str(completed_at) if completed_at else None,
-        }
-        if edit_id:
-            sb.table("work_orders").update(data).eq("id", edit_id).execute()
-            st.success("작업지시서가 수정되었습니다.")
+        fc1, fc2, fc3 = st.columns(3)
+        seq_mode = fc1.radio("입력방식", ["선택","직접입력"], horizontal=True,
+                             label_visibility="collapsed", key="edit_seq_mode")
+        if seq_mode == "직접입력":
+            repair_seq = fc1.text_input("수리구분", value=edit_order.get("repair_seq",""),
+                                         key="edit_seq_input")
         else:
-            result = sb.table("work_orders").insert(data).execute()
-            new_id = result.data[0]['id']
-            st.success("작업지시서가 등록되었습니다.")
-            
-            # 세부 내역 함께 등록
-            if st.session_state.get("d_name_new", "").strip():
-                def safe_int(value):
-                    cleaned = value.replace(",", "").replace("원", "")
-                    return int(cleaned) if cleaned else 0
-                
-                sb.table("order_details").insert({
-                    "work_order_id": new_id,
-                    "item_type": ",".join(st.session_state.get("d_type_new", [])),
-                    "item_name": st.session_state.get("d_name_new", "").strip(),
-                    "quantity": st.session_state.get("d_qty_new", 1.0),
-                    "unit_price": safe_int(st.session_state.get("d_price_new", "0")),
-                    "memo": st.session_state.get("d_memo_new", "").strip() or None,
-                }).execute()
-                st.success("세부 내역도 함께 등록되었습니다.")
-            
-            # PDF 다운로드
-            details = sb.table("order_details").select("*").eq("work_order_id", new_id).execute().data or []
-            pdf_data = generate_work_order_pdf([(data, details)], vehicle, customer)
-            st.download_button(
-                "📄 작업지시서 PDF 다운로드", 
-                data=pdf_data, 
-                file_name=f"work_order_{vehicle.get('plate_number', '')}_{new_id}.pdf", 
-                mime="application/pdf"
-            )
-        st.rerun()
+            cur = edit_order.get("repair_seq","수리1")
+            if cur not in all_seqs: all_seqs.append(cur)
+            repair_seq = fc1.selectbox("수리 구분", all_seqs,
+                                       index=all_seqs.index(cur), key="edit_seq_sel")
+        worker    = fc2.text_input("담당 기술자", value=edit_order.get("worker",""), key="edit_worker")
+        wo_status = fc3.selectbox("작업 상태", ["진행중","완료"],
+                                  index=0 if edit_order.get("status","진행중")=="진행중" else 1,
+                                  key="edit_status")
+        description = st.text_area("수리 내용", value=edit_order.get("description",""),
+                                    height=80, key="edit_desc")
 
-    # ── 세부 내역
-    if orders and edit_id:
-        st.divider()
-        st.subheader("세부 작업 내역")
-        details = sb.table("order_details").select("*") \
-            .eq("work_order_id", edit_id).execute().data or []
-        if details:
-            st.dataframe(pd.DataFrame([{
-                "유형": d.get("item_type",""), "항목명": d.get("item_name",""),
-                "수량": d.get("quantity",1), "단가": fmt_money(d.get("unit_price",0)),
-                "메모": d.get("memo","") or "",
-            } for d in details]), use_container_width=True, hide_index=True)
+        st.markdown("**비용 항목**")
+        keys = cost_fields("edit", edit_order)
+        pk, tfk, pak, eol_k, euk, twk, ink = keys
 
-        dc1, dc2, dc3, dc4 = st.columns([2,3,1,2])
-        d_type  = dc1.multiselect("유형", ["부품","소모품","공임","도장","엔진오일","보험","견인","기타"])
-        d_name  = dc2.text_input("항목명")
-        d_qty   = dc3.number_input("수량", min_value=0.1, step=0.1, value=1.0)
-        d_price_key = f"d_price_{edit_id}"
-        d_price = dc4.text_input("단가(원)", value="", key=d_price_key, 
-                                 on_change=lambda: format_money_input(d_price_key))
-        d_memo  = st.text_input("메모")
-        d_sub   = st.button("세부 내역 추가", use_container_width=True)
+        completed_at = None
+        if wo_status == "완료":
+            completed_at = st.date_input("완료일", value=date.today(), key="edit_done_date")
 
-        if d_sub and d_name.strip():
-            def safe_int(value):
-                cleaned = value.replace(",", "").replace("원", "")
-                return int(cleaned) if cleaned else 0
-            
-            sb.table("order_details").insert({
-                "work_order_id": edit_id, "item_type": ",".join(d_type),
-                "item_name": d_name.strip(), "quantity": d_qty,
-                "unit_price": safe_int(st.session_state.get(d_price_key, "0")),
-                "memo": d_memo.strip() or None,
-            }).execute()
+        if st.button("저장", type="primary", use_container_width=True, key="btn_edit_save"):
+            upd = {
+                "vehicle_id": vehicle_id, "repair_seq": repair_seq,
+                "description": description.strip() or None,
+                "worker": worker.strip() or None,
+                "parts_amount":      safe_int(st.session_state.get(pk,  "0")),
+                "engine_oil_liter":  st.session_state.get(eol_k, 0),
+                "engine_oil_unit":   safe_int(st.session_state.get(euk, "0")),
+                "towing_fee":        safe_int(st.session_state.get(twk, "0")),
+                "insurance_fee":     safe_int(st.session_state.get(ink, "0")),
+                "tech_fee":          safe_int(st.session_state.get(tfk, "0")),
+                "paint_amount":      safe_int(st.session_state.get(pak, "0")),
+                "status": wo_status,
+                "completed_at": str(completed_at) if completed_at else None,
+            }
+            sb.table("work_orders").update(upd).eq("id", edit_id).execute()
+            st.success("작업지시서가 수정되었습니다.")
+            st.rerun()
+
+    # ════════════════════════════════════
+    # ② 새 등록 모드 — 여러 건 일괄 등록
+    # ════════════════════════════════════
+    else:
+        slot_key = f"new_order_count_{vehicle_id}"
+        if slot_key not in st.session_state:
+            st.session_state[slot_key] = 1
+
+        cnt = st.session_state[slot_key]
+        ca, cb = st.columns([1, 1])
+        if ca.button("➕ 작업 추가", use_container_width=True):
+            st.session_state[slot_key] = cnt + 1
+            st.rerun()
+        if cnt > 1 and cb.button("➖ 마지막 작업 제거", use_container_width=True):
+            st.session_state[slot_key] = cnt - 1
+            st.rerun()
+
+        for i in range(cnt):
+            p = f"new{i}"           # prefix
+            st.markdown(f"---\n**작업 {i+1}**")
+            fc1, fc2, fc3 = st.columns(3)
+            seq_mode = fc1.radio("입력방식", ["선택","직접입력"], horizontal=True,
+                                 label_visibility="collapsed", key=f"seq_mode_{p}")
+            if seq_mode == "직접입력":
+                repair_seq_i = fc1.text_input("수리구분", placeholder="예: 수리3, 재작업",
+                                               key=f"seq_input_{p}")
+            else:
+                repair_seq_i = fc1.selectbox("수리 구분", all_seqs,
+                                             index=i if i < len(all_seqs) else 0,
+                                             key=f"seq_sel_{p}")
+            fc2.text_input("담당 기술자", key=f"worker_{p}")
+            fc3.selectbox("작업 상태", ["진행중","완료"], key=f"status_{p}")
+            st.text_area("수리 내용", height=70, key=f"desc_{p}")
+
+            st.markdown("**비용 항목**")
+            cost_fields(p)
+
+            wo_status_i = st.session_state.get(f"status_{p}", "진행중")
+            if wo_status_i == "완료":
+                st.date_input("완료일", value=date.today(), key=f"done_{p}")
+
+        st.markdown("---")
+        if st.button("일괄 등록", type="primary", use_container_width=True, key="btn_bulk_register"):
+            if v_status in ("입고", "진단"):
+                sb.table("vehicles").update({"status": "수리중"}).eq("id", vehicle_id).execute()
+
+            saved = []
+            for i in range(cnt):
+                p = f"new{i}"
+                seq_mode = st.session_state.get(f"seq_mode_{p}", "선택")
+                rep_seq  = (st.session_state.get(f"seq_input_{p}", "").strip()
+                            if seq_mode == "직접입력"
+                            else st.session_state.get(f"seq_sel_{p}", "수리1"))
+                wo_stat  = st.session_state.get(f"status_{p}", "진행중")
+                done_at  = str(st.session_state.get(f"done_{p}", "")) if wo_stat == "완료" else None
+                row = {
+                    "vehicle_id":       vehicle_id,
+                    "repair_seq":       rep_seq or f"작업{i+1}",
+                    "description":      (st.session_state.get(f"desc_{p}", "") or "").strip() or None,
+                    "worker":           (st.session_state.get(f"worker_{p}", "") or "").strip() or None,
+                    "parts_amount":     safe_int(st.session_state.get(f"parts_{p}", "0")),
+                    "engine_oil_liter": st.session_state.get(f"eol_{p}", 0),
+                    "engine_oil_unit":  safe_int(st.session_state.get(f"eou_{p}", "0")),
+                    "towing_fee":       safe_int(st.session_state.get(f"tow_{p}", "0")),
+                    "insurance_fee":    safe_int(st.session_state.get(f"ins_{p}", "0")),
+                    "tech_fee":         safe_int(st.session_state.get(f"tech_{p}", "0")),
+                    "paint_amount":     safe_int(st.session_state.get(f"paint_{p}", "0")),
+                    "status":           wo_stat,
+                    "completed_at":     done_at or None,
+                }
+                result = sb.table("work_orders").insert(row).execute()
+                saved.append(row)
+
+            st.success(f"✅ {len(saved)}건 작업지시서가 등록되었습니다.")
+            st.session_state[slot_key] = 1   # 슬롯 초기화
             st.rerun()
