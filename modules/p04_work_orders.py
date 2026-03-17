@@ -47,22 +47,23 @@ def generate_work_order_pdf(work_order, details, vehicle, customer=None):
                             topMargin=40, bottomMargin=40)
 
     # 한글 스타일 정의
-    style_title = ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=18,
+    style_title = ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=22,
                                   spaceAfter=6, alignment=1)
-    style_sub   = ParagraphStyle("KSub", fontName="NanumGothic", fontSize=9,
-                                  spaceAfter=10, alignment=1, textColor=colors.HexColor("#888888"))
-    style_h2 = ParagraphStyle("KH2", fontName="NanumGothic", fontSize=12,
+    style_sub   = ParagraphStyle("KSub", fontName="NanumGothic", fontSize=11,
+                                  spaceAfter=10, alignment=1, textColor=colors.HexColor("#555555"))
+    style_h2 = ParagraphStyle("KH2", fontName="NanumGothic", fontSize=14,
                                spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#2c3e50"))
-    style_body = ParagraphStyle("KBody", fontName="NanumGothic", fontSize=10,
-                                 leading=14, spaceAfter=2)
+    style_body = ParagraphStyle("KBody", fontName="NanumGothic", fontSize=12,
+                                 leading=16, spaceAfter=2)
 
     story = []
 
-    # 제목 + 출력일시
+    # 제목 + 출력일시 (1cm 간격)
     story.append(Paragraph("작업지시서", style_title))
-    printed_at = datetime.now().strftime("%Y년 %m월 %d일 %H:%M 출력")
+    story.append(Spacer(1, 28))          # 약 1 cm
+    printed_at = datetime.now().strftime("%Y년 %m월 %d일  %H:%M  출력")
     story.append(Paragraph(printed_at, style_sub))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 10))
 
     # 차량 및 고객 정보 테이블
     cust_name  = (customer or {}).get('name', '') or ''
@@ -127,7 +128,7 @@ def generate_work_order_pdf(work_order, details, vehicle, customer=None):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("ALIGN", (2, 1), (4, -1), "RIGHT"),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
