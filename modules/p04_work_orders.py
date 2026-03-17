@@ -39,134 +39,219 @@ def format_money_input(key):
     st.session_state[key] = formatted
 
 
-def generate_work_order_pdf(work_order, details, vehicle, customer=None):
-    """작업지시서 PDF 생성 (NanumGothic 한글 폰트)"""
+def _pdf_styles():
+    """공통 PDF 스타일 반환"""
+    return {
+        "title": ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=22,
+                                 spaceAfter=6, alignment=1),
+        "sub":   ParagraphStyle("KSub",   fontName="NanumGothic", fontSize=11,
+                                 spaceAfter=10, alignment=1,
+                                 textColor=colors.HexColor("#555555")),
+        "h2":    ParagraphStyle("KH2",    fontName="NanumGothic", fontSize=14,
+                                 spaceBefore=8, spaceAfter=4,
+                                 textColor=colors.HexColor("#2c3e50")),
+        "body":  ParagraphStyle("KBody",  fontName="NanumGothic", fontSize=12,
+                                 leading=16, spaceAfter=2),
+        "seq":   ParagraphStyle("KSeq",   fontName="NanumGothic", fontSize=13,
+                                 textColor=colors.white, leading=18),
+    }
+
+
+def _build_vehicle_info_table(vehicle, customer, st):
+    """차량/고객 정보 테이블 생성"""
+    cust_name   = (customer or {}).get('name', '')  or ''
+    cust_phone  = (customer or {}).get('phone', '') or ''
+    mileage     = vehicle.get('mileage', '') or ''
+    mileage_str = f"{int(mileage):,} km" if mileage else '-'
+    info_data = [
+        ["차량번호", vehicle.get('plate_number', '') or ''],
+        ["차량모델", vehicle.get('model', '')        or ''],
+        ["주행거리", mileage_str],
+        ["고객명",   cust_name],
+        ["연락처",   cust_phone],
+    ]
+    tbl = Table(
+        [[Paragraph(k, st["body"]), Paragraph(v, st["body"])] for k, v in info_data],
+        colWidths=[80, 390]
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
+        ("FONTNAME",   (0, 0), (-1,-1), "NanumGothic"),
+        ("FONTSIZE",   (0, 0), (-1,-1), 12),
+        ("GRID",       (0, 0), (-1,-1), 0.5, colors.grey),
+        ("VALIGN",     (0, 0), (-1,-1), "TOP"),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+    ]))
+    return tbl
+
+
+def _build_order_section(work_order, details, st):
+    """작업지시서 1건에 해당하는 story 요소 목록 반환"""
+    items = []
+
+    # ── 수리구분 헤더 바
+    seq_label = work_order.get('repair_seq', '') or ''
+    seq_tbl = Table(
+        [[Paragraph(f"  ■  {seq_label}", st["seq"])]],
+        colWidths=[470], rowHeights=[30]
+    )
+    seq_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#2c3e50")),
+        ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING",(0,0), (-1,-1), 8),
+    ]))
+    items.append(seq_tbl)
+    items.append(Spacer(1, 6))
+
+    # ── 담당자 + 수리확인 서명란 (좌우 분할)
+    worker = work_order.get('worker', '') or '-'
+    sign_tbl = Table(
+        [[
+            Paragraph(f"담당자:  {worker}", st["body"]),
+            Paragraph("수리확인:  _______________________________", st["body"]),
+        ]],
+        colWidths=[220, 250]
+    )
+    sign_tbl.setStyle(TableStyle([
+        ("FONTNAME",     (0,0), (-1,-1), "NanumGothic"),
+        ("FONTSIZE",     (0,0), (-1,-1), 12),
+        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 4),
+    ]))
+    items.append(sign_tbl)
+
+    # ── 수리내용
+    desc = work_order.get('description', '') or ''
+    if desc:
+        desc_tbl = Table(
+            [[Paragraph("수리내용", st["body"]), Paragraph(desc, st["body"])]],
+            colWidths=[80, 390]
+        )
+        desc_tbl.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0), (0,-1), colors.HexColor("#ecf0f1")),
+            ("FONTNAME",     (0,0), (-1,-1), "NanumGothic"),
+            ("FONTSIZE",     (0,0), (-1,-1), 12),
+            ("GRID",         (0,0), (-1,-1), 0.5, colors.grey),
+            ("VALIGN",       (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING",  (0,0), (-1,-1), 6),
+            ("RIGHTPADDING", (0,0), (-1,-1), 6),
+            ("TOPPADDING",   (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ]))
+        items.append(desc_tbl)
+    items.append(Spacer(1, 8))
+
+    # ── 세부 내역 테이블
+    if details:
+        items.append(Paragraph("세부 내역", st["h2"]))
+        header_row = [
+            Paragraph("유형",   st["body"]),
+            Paragraph("항목명", st["body"]),
+            Paragraph("수량",   st["body"]),
+            Paragraph("단가",   st["body"]),
+            Paragraph("금액",   st["body"]),
+            Paragraph("메모",   st["body"]),
+        ]
+        d_rows = [header_row]
+        for d in details:
+            qty    = d.get('quantity', 1) or 1
+            price  = d.get('unit_price', 0) or 0
+            amount = d.get('amount') or int(qty * price)
+            d_rows.append([
+                Paragraph(d.get('item_type', '') or '', st["body"]),
+                Paragraph(d.get('item_name', '') or '', st["body"]),
+                Paragraph(str(qty), st["body"]),
+                Paragraph(fmt_money(price),  st["body"]),
+                Paragraph(fmt_money(amount), st["body"]),
+                Paragraph(d.get('memo', '') or '', st["body"]),
+            ])
+        d_tbl = Table(d_rows, colWidths=[60, 155, 40, 75, 80, 60])
+        d_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#2c3e50")),
+            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
+            ("FONTNAME",   (0,0), (-1,-1), "NanumGothic"),
+            ("FONTSIZE",   (0,0), (-1,-1), 11),
+            ("GRID",       (0,0), (-1,-1), 0.5, colors.grey),
+            ("ALIGN",      (2,1), (4,-1), "RIGHT"),
+            ("VALIGN",     (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING",  (0,0), (-1,-1), 5),
+            ("RIGHTPADDING", (0,0), (-1,-1), 5),
+            ("TOPPADDING",   (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING",(0,0), (-1,-1), 4),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1),
+             [colors.white, colors.HexColor("#f8f9fa")]),
+        ]))
+        items.append(d_tbl)
+        items.append(Spacer(1, 8))
+
+    # ── 비용 요약
+    items.append(Paragraph("비용 요약", st["h2"]))
+    cost_data = [
+        ["부품금액", fmt_money(work_order.get('parts_amount', 0))],
+        ["기술료",   fmt_money(work_order.get('tech_fee', 0))],
+        ["도장금액", fmt_money(work_order.get('paint_amount', 0))],
+        ["합  계",   fmt_money(work_order.get('total_amount', 0))],
+    ]
+    c_tbl = Table(
+        [[Paragraph(k, st["body"]), Paragraph(v, st["body"])] for k, v in cost_data],
+        colWidths=[100, 160]
+    )
+    c_tbl.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (0,-1),  colors.HexColor("#ecf0f1")),
+        ("BACKGROUND",   (0,-1), (-1,-1), colors.HexColor("#2c3e50")),
+        ("TEXTCOLOR",    (0,-1), (-1,-1), colors.white),
+        ("FONTNAME",     (0,0), (-1,-1), "NanumGothic"),
+        ("FONTSIZE",     (0,0), (-1,-1), 12),
+        ("GRID",         (0,0), (-1,-1), 0.5, colors.grey),
+        ("ALIGN",        (1,0), (1,-1), "RIGHT"),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+    ]))
+    items.append(c_tbl)
+    return items
+
+
+def generate_work_order_pdf(orders_with_details, vehicle, customer=None):
+    """작업지시서 PDF 생성 — 작업 여러 건을 섹션별로 구분 출력
+    orders_with_details: [(work_order_dict, details_list), ...]
+    """
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             leftMargin=40, rightMargin=40,
                             topMargin=40, bottomMargin=40)
-
-    # 한글 스타일 정의
-    style_title = ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=22,
-                                  spaceAfter=6, alignment=1)
-    style_sub   = ParagraphStyle("KSub", fontName="NanumGothic", fontSize=11,
-                                  spaceAfter=10, alignment=1, textColor=colors.HexColor("#555555"))
-    style_h2 = ParagraphStyle("KH2", fontName="NanumGothic", fontSize=14,
-                               spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#2c3e50"))
-    style_body = ParagraphStyle("KBody", fontName="NanumGothic", fontSize=12,
-                                 leading=16, spaceAfter=2)
-
+    st = _pdf_styles()
     story = []
 
-    # 제목 + 출력일시 (1cm 간격)
-    story.append(Paragraph("작업지시서", style_title))
-    story.append(Spacer(1, 28))          # 약 1 cm
+    # ── 제목 + 출력일시
+    story.append(Paragraph("작업지시서", st["title"]))
+    story.append(Spacer(1, 28))
     printed_at = datetime.now().strftime("%Y년 %m월 %d일  %H:%M  출력")
-    story.append(Paragraph(printed_at, style_sub))
-    story.append(Spacer(1, 10))
-
-    # 차량 및 고객 정보 테이블
-    cust_name  = (customer or {}).get('name', '') or ''
-    cust_phone = (customer or {}).get('phone', '') or ''
-    mileage    = vehicle.get('mileage', '') or ''
-    mileage_str = f"{int(mileage):,} km" if mileage else '-'
-
-    info_data = [
-        ["차량번호", vehicle.get('plate_number', '') or ''],
-        ["차량모델", vehicle.get('model', '') or ''],
-        ["주행거리", mileage_str],
-        ["고객명",   cust_name],
-        ["연락처",   cust_phone],
-        ["수리구분", work_order.get('repair_seq', '') or ''],
-        ["담당자",   work_order.get('worker', '') or ''],
-        ["수리내용", work_order.get('description', '') or ''],
-    ]
-    info_table = Table(
-        [[Paragraph(k, style_body), Paragraph(v, style_body)] for k, v in info_data],
-        colWidths=[80, 390]
-    )
-    info_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
-        ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(info_table)
+    story.append(Paragraph(printed_at, st["sub"]))
     story.append(Spacer(1, 12))
 
-    # 세부 내역 테이블
-    if details:
-        story.append(Paragraph("세부 내역", style_h2))
-        header = [
-            Paragraph("유형", style_body),
-            Paragraph("항목명", style_body),
-            Paragraph("수량", style_body),
-            Paragraph("단가", style_body),
-            Paragraph("금액", style_body),
-            Paragraph("메모", style_body),
-        ]
-        rows = [header]
-        for d in details:
-            qty = d.get('quantity', 1) or 1
-            price = d.get('unit_price', 0) or 0
-            amount = d.get('amount') or int(qty * price)
-            rows.append([
-                Paragraph(d.get('item_type', '') or '', style_body),
-                Paragraph(d.get('item_name', '') or '', style_body),
-                Paragraph(str(qty), style_body),
-                Paragraph(fmt_money(price), style_body),
-                Paragraph(fmt_money(amount), style_body),
-                Paragraph(d.get('memo', '') or '', style_body),
-            ])
-        detail_table = Table(rows, colWidths=[55, 150, 45, 80, 80, 60])
-        detail_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
-            ("FONTSIZE", (0, 0), (-1, -1), 11),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("ALIGN", (2, 1), (4, -1), "RIGHT"),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 5),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
-        ]))
-        story.append(detail_table)
-        story.append(Spacer(1, 12))
+    # ── 차량/고객 정보 (1회 출력)
+    story.append(_build_vehicle_info_table(vehicle, customer, st))
+    story.append(Spacer(1, 16))
 
-    # 비용 요약 테이블
-    story.append(Paragraph("비용 요약", style_h2))
-    cost_data = [
-        ["부품금액", fmt_money(work_order.get('parts_amount', 0))],
-        ["기술료", fmt_money(work_order.get('tech_fee', 0))],
-        ["도장금액", fmt_money(work_order.get('paint_amount', 0))],
-        ["합계", fmt_money(work_order.get('total_amount', 0))],
-    ]
-    cost_table = Table(
-        [[Paragraph(k, style_body), Paragraph(v, style_body)] for k, v in cost_data],
-        colWidths=[100, 150]
-    )
-    cost_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#2c3e50")),
-        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
-        ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(cost_table)
+    # ── 작업별 섹션
+    for i, (work_order, details) in enumerate(orders_with_details):
+        if i > 0:
+            # 작업 간 구분선
+            story.append(Spacer(1, 10))
+            sep = Table([['']], colWidths=[470], rowHeights=[2])
+            sep.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#aaaaaa"))
+            ]))
+            story.append(sep)
+            story.append(Spacer(1, 10))
+        story.extend(_build_order_section(work_order, details, st))
 
     doc.build(story)
     buffer.seek(0)
@@ -224,14 +309,31 @@ def render():
     if orders:
         st.subheader("작업지시서 현황")
 
-        # 테이블 헤더
+        # ── 전체 통합 PDF (모든 작업 한 파일)
+        all_details = [
+            sb.table("order_details").select("*").eq("work_order_id", o["id"]).execute().data or []
+            for o in orders
+        ]
+        combined_pdf = generate_work_order_pdf(
+            list(zip(orders, all_details)), vehicle, customer
+        )
+        plate_no = vehicle.get("plate_number", "차량")
+        st.download_button(
+            "📄 전체 작업지시서 PDF (통합)",
+            data=combined_pdf,
+            file_name=f"작업지시서_{plate_no}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
+
+        # ── 작업별 목록 테이블
         header_cols = st.columns([1, 2, 1, 1, 1, 1, 1, 1, 1])
-        headers = ["구분", "수리내용", "담당자", "부품금액", "기술료", "총계", "완료일", "상태", "PDF"]
+        headers = ["구분", "수리내용", "담당자", "부품금액", "기술료", "총계", "완료일", "상태", "개별PDF"]
         for col, h in zip(header_cols, headers):
             col.markdown(f"**{h}**")
 
-        # 각 작업지시서 별 PDF 다운로드 버튼 추가
-        for o in orders:
+        for o, det in zip(orders, all_details):
             s = summarize_work_order(o)
             row_cols = st.columns([1, 2, 1, 1, 1, 1, 1, 1, 1])
             row_cols[0].write(s.get("repair_seq",""))
@@ -243,10 +345,13 @@ def render():
             row_cols[6].write(s.get("completed_at","") or "-")
             row_cols[7].write("완료" if s.get("status") == "완료" else "진행중")
 
-            details = sb.table("order_details").select("*").eq("work_order_id", o["id"]).execute().data or []
-            pdf_bytes = generate_work_order_pdf(o, details, vehicle, customer)
-            filename = f"work_order_{o['id']}.pdf"
-            row_cols[8].download_button("PDF", data=pdf_bytes, file_name=filename, mime="application/pdf")
+            single_pdf = generate_work_order_pdf([(o, det)], vehicle, customer)
+            row_cols[8].download_button(
+                "PDF", data=single_pdf,
+                file_name=f"작업지시서_{plate_no}_{s.get('repair_seq','')}.pdf",
+                mime="application/pdf",
+                key=f"pdf_{o['id']}",
+            )
 
         grand_total = sum(summarize_work_order(o).get("total_amount",0) or 0 for o in orders)
         st.metric("전체 작업 합계", fmt_money(grand_total))
@@ -457,7 +562,7 @@ def render():
             
             # PDF 다운로드
             details = sb.table("order_details").select("*").eq("work_order_id", new_id).execute().data or []
-            pdf_data = generate_work_order_pdf(data, details, vehicle, customer)
+            pdf_data = generate_work_order_pdf([(data, details)], vehicle, customer)
             st.download_button(
                 "📄 작업지시서 PDF 다운로드", 
                 data=pdf_data, 
