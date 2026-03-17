@@ -5,10 +5,19 @@ from datetime import date
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import summarize_work_order, fmt_money, ENGINE_OIL_UNIT_PRICE
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib import colors
 from io import BytesIO
+import os
+
+# 한글 폰트 등록
+_FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "utils", "fonts", "NanumGothic.ttf")
+_FONT_PATH = os.path.normpath(_FONT_PATH)
+pdfmetrics.registerFont(TTFont("NanumGothic", _FONT_PATH))
 
 REPAIR_SEQS = ['수리1', '수리2', '추가']
 
@@ -31,50 +40,121 @@ def format_money_input(key):
 
 
 def generate_work_order_pdf(work_order, details, vehicle):
-    """작업지시서 PDF 생성 (reportlab 사용 - 기본 폰트)"""
+    """작업지시서 PDF 생성 (NanumGothic 한글 폰트)"""
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            leftMargin=40, rightMargin=40,
+                            topMargin=40, bottomMargin=40)
+
+    # 한글 스타일 정의
+    style_title = ParagraphStyle("KTitle", fontName="NanumGothic", fontSize=18,
+                                  spaceAfter=12, alignment=1)
+    style_h2 = ParagraphStyle("KH2", fontName="NanumGothic", fontSize=12,
+                               spaceBefore=10, spaceAfter=4, textColor=colors.HexColor("#2c3e50"))
+    style_body = ParagraphStyle("KBody", fontName="NanumGothic", fontSize=10,
+                                 leading=14, spaceAfter=2)
+
     story = []
-    
+
     # 제목
-    title = Paragraph("작업지시서", styles['Title'])
-    story.append(title)
-    story.append(Spacer(1, 12))
-    
-    # 차량 정보
-    info = [
-        f"차량번호: {vehicle.get('plate_number', '')}",
-        f"모델: {vehicle.get('model', '')}",
-        f"수리 구분: {work_order.get('repair_seq', '')}",
-        f"담당자: {work_order.get('worker', '')}",
-        f"수리 내용: {work_order.get('description', '')}",
+    story.append(Paragraph("작업지시서", style_title))
+    story.append(Spacer(1, 6))
+
+    # 차량 정보 테이블
+    info_data = [
+        ["차량번호", vehicle.get('plate_number', '') or ''],
+        ["차량모델", vehicle.get('model', '') or ''],
+        ["수리구분", work_order.get('repair_seq', '') or ''],
+        ["담당자", work_order.get('worker', '') or ''],
+        ["수리내용", work_order.get('description', '') or ''],
     ]
-    for line in info:
-        story.append(Paragraph(line, styles['Normal']))
+    info_table = Table(
+        [[Paragraph(k, style_body), Paragraph(v, style_body)] for k, v in info_data],
+        colWidths=[80, 390]
+    )
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
+        ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(info_table)
     story.append(Spacer(1, 12))
-    
-    # 세부 내역
-    story.append(Paragraph("세부 내역:", styles['Heading2']))
-    for d in details:
-        item = f"- 유형: {d.get('item_type', '')}<br/>  항목명: {d.get('item_name', '')}<br/>  수량: {d.get('quantity', 1)}, 단가: {fmt_money(d.get('unit_price', 0))}"
-        if d.get('memo'):
-            item += f"<br/>  메모: {d.get('memo', '')}"
-        story.append(Paragraph(item, styles['Normal']))
-        story.append(Spacer(1, 6))
-    
-    story.append(Spacer(1, 12))
-    
-    # 비용 요약
-    story.append(Paragraph("비용 요약:", styles['Heading2']))
-    costs = [
-        f"부품금액: {fmt_money(work_order.get('parts_amount', 0))}",
-        f"기술료: {fmt_money(work_order.get('tech_fee', 0))}",
-        f"도장금액: {fmt_money(work_order.get('paint_amount', 0))}",
+
+    # 세부 내역 테이블
+    if details:
+        story.append(Paragraph("세부 내역", style_h2))
+        header = [
+            Paragraph("유형", style_body),
+            Paragraph("항목명", style_body),
+            Paragraph("수량", style_body),
+            Paragraph("단가", style_body),
+            Paragraph("금액", style_body),
+            Paragraph("메모", style_body),
+        ]
+        rows = [header]
+        for d in details:
+            qty = d.get('quantity', 1) or 1
+            price = d.get('unit_price', 0) or 0
+            amount = d.get('amount') or int(qty * price)
+            rows.append([
+                Paragraph(d.get('item_type', '') or '', style_body),
+                Paragraph(d.get('item_name', '') or '', style_body),
+                Paragraph(str(qty), style_body),
+                Paragraph(fmt_money(price), style_body),
+                Paragraph(fmt_money(amount), style_body),
+                Paragraph(d.get('memo', '') or '', style_body),
+            ])
+        detail_table = Table(rows, colWidths=[55, 150, 45, 80, 80, 60])
+        detail_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ALIGN", (2, 1), (4, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+        ]))
+        story.append(detail_table)
+        story.append(Spacer(1, 12))
+
+    # 비용 요약 테이블
+    story.append(Paragraph("비용 요약", style_h2))
+    cost_data = [
+        ["부품금액", fmt_money(work_order.get('parts_amount', 0))],
+        ["기술료", fmt_money(work_order.get('tech_fee', 0))],
+        ["도장금액", fmt_money(work_order.get('paint_amount', 0))],
+        ["합계", fmt_money(work_order.get('total_amount', 0))],
     ]
-    for cost in costs:
-        story.append(Paragraph(cost, styles['Normal']))
-    
+    cost_table = Table(
+        [[Paragraph(k, style_body), Paragraph(v, style_body)] for k, v in cost_data],
+        colWidths=[100, 150]
+    )
+    cost_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#2c3e50")),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), "NanumGothic"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(cost_table)
+
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
