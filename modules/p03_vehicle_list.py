@@ -1,6 +1,5 @@
 """차량 현황 목록"""
 import streamlit as st
-import pandas as pd
 from database.connection import get_supabase
 from utils.styles import apply_global_style, page_header, section_title
 from utils.calculations import fmt_phone
@@ -74,51 +73,58 @@ def render():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    # ── 목록 테이블
-    rows = []
+    # ── 목록 테이블 헤더
+    h0, h1, h2, h3, h4, h5, h6, h7, h8, h9 = st.columns([1.2, 1.4, 2, 1.5, 1, 1, 1.2, 1.5, 0.5, 0.5])
+    h0.markdown("**상태**"); h1.markdown("**차량번호**"); h2.markdown("**모델**")
+    h3.markdown("**입고분류**"); h4.markdown("**입고일**"); h5.markdown("**출고예정**")
+    h6.markdown("**고객명**"); h7.markdown("**연락처**"); h8.markdown("**AOS**"); h9.markdown("**수정**")
+    st.divider()
+
     for v in flat:
-        status = v.get("status", "")
-        color = STATUS_COLOR.get(status, "#888")
-        rows.append({
-            "상태": status,
-            "차량번호": v.get("plate_number", ""),
-            "모델": v.get("model", ""),
-            "입고분류": v.get("intake_type", ""),
-            "입고일": v.get("intake_date", ""),
-            "출고예정": v.get("expected_out", "") or "-",
-            "고객명": v.get("customer_name", ""),
-            "연락처": fmt_phone(v.get("customer_phone", "")),
-            "AOS": "✔" if v.get("aos_claimed") else "",
-            "비고": v.get("memo", "") or "",
-            "_id": v.get("id", ""),
-        })
+        status  = v.get("status", "")
+        color   = STATUS_COLOR.get(status, "#888")
+        plate   = v.get("plate_number", "")
+        vid     = v.get("id", "")
 
-    df = pd.DataFrame(rows)
-    display_df = df.drop(columns=["_id"], errors="ignore")
+        c0, c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1.2, 1.4, 2, 1.5, 1, 1, 1.2, 1.5, 0.5, 0.5])
+        c0.markdown(
+            f"<span style='background:{color};color:white;padding:2px 8px;"
+            f"border-radius:10px;font-size:11px;white-space:nowrap'>{status}</span>",
+            unsafe_allow_html=True
+        )
+        # 차량번호 클릭 → 작업지시서 이동
+        if c1.button(plate, key=f"plate_{vid}", use_container_width=True):
+            st.session_state["detail_vehicle_id"] = vid
+            st.session_state["_goto_page"] = "작업지시서"
+            st.rerun()
+        c2.write(v.get("model", ""))
+        c3.write(v.get("intake_type", ""))
+        c4.write(v.get("intake_date", ""))
+        c5.write(v.get("expected_out", "") or "-")
+        c6.write(v.get("customer_name", ""))
+        c7.write(fmt_phone(v.get("customer_phone", "")))
+        c8.write("✔" if v.get("aos_claimed") else "")
+        # 상태변경/삭제 선택 버튼
+        if c9.button("✏️", key=f"sel_{vid}"):
+            st.session_state["_sel_vid"] = vid
+            st.rerun()
 
-    event = st.dataframe(
-        display_df,
-        use_container_width=True,
-        height=480,
-        on_select="rerun",
-        selection_mode="single-row",
-    )
+    # ── 상태 변경 (✏️ 선택 시)
+    sel_vid = st.session_state.get("_sel_vid")
+    sel_v   = next((v for v in flat if v.get("id") == sel_vid), None) if sel_vid else None
 
-    # ── 상태 변경 (선택 시)
-    selected = event.selection.get("rows", []) if event else []
-    if selected:
-        idx = selected[0]
-        vehicle_id = rows[idx]["_id"]
-        plate = rows[idx]["차량번호"]
+    if sel_v:
+        vehicle_id = sel_v.get("id", "")
+        plate      = sel_v.get("plate_number", "")
 
         st.divider()
         st.subheader(f"🔄 상태 변경 — {plate}")
         status_opts = ['입고', '진단', '수리중', '부품대기', '도장', '상품화', '출고대기', '출고완료']
-        cur_status = rows[idx]["상태"]
-        new_status = st.selectbox("새 상태", status_opts,
-                                  index=status_opts.index(cur_status) if cur_status in status_opts else 0)
+        cur_status  = sel_v.get("status", "")
+        new_status  = st.selectbox("새 상태", status_opts,
+                                   index=status_opts.index(cur_status) if cur_status in status_opts else 0)
 
-        exp_date = st.date_input("출고예정일 수정", value=None)
+        exp_date   = st.date_input("출고예정일 수정", value=None)
         actual_out = None
         if new_status == "출고완료":
             from datetime import date
@@ -132,23 +138,22 @@ def render():
                 update_data["actual_out"] = str(actual_out)
             sb.table("vehicles").update(update_data).eq("id", vehicle_id).execute()
             st.success(f"✅ {plate} → {new_status}")
+            st.session_state["_sel_vid"] = None
             st.rerun()
 
-        # 상세 이동 버튼
         if st.button("📄 작업지시서 보기"):
             st.session_state["detail_vehicle_id"] = vehicle_id
             st.session_state["_goto_page"] = "작업지시서"
             st.rerun()
 
-        # 삭제 기능 추가
         st.warning("⚠️ 차량 삭제는 신중하게 진행하세요. 삭제된 데이터는 복구할 수 없습니다.")
         delete_confirm = st.text_input("삭제 확인: 'DELETE'를 입력하세요", key=f"delete_{vehicle_id}")
         if st.button("🗑️ 차량 삭제", type="secondary"):
             if delete_confirm.strip().upper() == "DELETE":
-                # 관련 데이터 삭제 (work_orders 등)
                 sb.table("work_orders").delete().eq("vehicle_id", vehicle_id).execute()
                 sb.table("vehicles").delete().eq("id", vehicle_id).execute()
                 st.success(f"✅ {plate} 차량이 삭제되었습니다.")
+                st.session_state["_sel_vid"] = None
                 st.rerun()
             else:
                 st.error("삭제 확인 문구를 정확히 입력하세요.")
